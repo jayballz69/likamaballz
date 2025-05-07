@@ -1,0 +1,31 @@
+version: '3.8'
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Australia/Brisbane
+
+  # Zigbee2MQTT (Commented out until dongle is available)
+  # zigbee2mqtt:
+  #   image: koenkk/zigbee2mqtt:latest
+  #   container_name: zigbee2mqtt
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./zigbee2mqtt/data:/app/data
+  #     - /run/udev:/run/udev:ro
+  #   ports:
+  #     - '8081:8081' # Zigbee2MQTT frontend
+  #   environment:
+  #     - TZ=Australia/Brisbane
+  #   devices:
+  #     - /dev/ttyUSB0:/dev/ttyUSB0 # Make sure this matches your dongle path
+
+# Add more smart home services as needed
+

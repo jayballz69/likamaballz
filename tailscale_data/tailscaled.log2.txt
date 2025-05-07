@@ -1,0 +1,3 @@
+{"logtail":{"client_time":"2025-05-07T10:40:00.741088134Z","proc_id":2169231930,"proc_seq":117},"metrics":"N2anetmon_link_change_eqS0204N40controlclient_auto_status_queuedS0402N18profiles_newS0602N24profiles_migrationS0802N34profiles_migration_successS0a02N46gauge_dns_manager_linux_mode_directS0c02","text":"tailscaled got signal terminated; shutting down\n"}
+{"logtail":{"client_time":"2025-05-07T10:40:00.742705601Z","proc_id":2169231930,"proc_seq":118},"text":"logged out ephemeral node on shutdown\n"}
+{"logtail":{"client_time":"2025-05-07T10:40:00.743190137Z","proc_id":2169231930,"proc_seq":119},"text":"control: client.Shutdown ...\n"}

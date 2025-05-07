@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - '9443:9443' # Use 9443 for HTTPS by default
+      - '9000:9000' # Optional: HTTP
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer_data:/data # Use a local volume mount
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Add arguments if needed, e.g., --cleanup to remove old images
+    # command: --cleanup
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - '81:81'   # Admin UI
+      - '80:80'   # HTTP
+      - '443:443' # HTTPS
+    volumes:
+      - ./npm_data:/data
+      - ./letsencrypt:/etc/letsencrypt
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    hostname: home-automation-stack # Set a hostname for Tailscale
+    restart: unless-stopped
+    network_mode: host # Use host network for easier setup
+    privileged: true
+    volumes:
+      - ./tailscale_data:/var/lib/tailscale # Persist state
+      - /dev/net/tun:/dev/net/tun # Required for VPN tunnel
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY} # Use an environment variable for the auth key
+      # - TS_EXTRA_ARGS=--advertise-routes=YOUR_SUBNETS # If needed
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    # Use command to specify tunnel token or config file
+    # command: tunnel --no-autoupdate run --token YOUR_TUNNEL_TOKEN
+    volumes:
+      - ./cloudflared_data:/.cloudflared # Persist config and certs
+
+volumes:
+  portainer_data:
+  npm_data:
+  letsencrypt:
+  tailscale_data:
+  cloudflared_data:

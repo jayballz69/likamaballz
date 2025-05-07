@@ -1,0 +1,191 @@
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    shm_size: '64mb'
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./frigate/config:/config
+      - ./frigate/media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '5000:5000' # Frigate UI
+      - '8554:8554' # RTSP
+      - '8555:8555/tcp' # WebRTC
+    environment:
+      - FRIGATE_RTSP_PASSWORD=changeme
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    ports:
+      - '11434:11434'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Documentation for ollama usage
+  #
+  # To run a model using ollama, use the following command:
+  #
+  # sudo docker exec -it ollama ollama run <model_name>
+  #
+  # Example:
+  # sudo docker exec -it ollama ollama run llama3:8b
+  #
+  # To list available models:
+  # sudo docker exec -it ollama ollama list
+  #
+  # Ensure the ollama container is running and accessible on port 11434.
+
+  # Stable Diffusion WebUI (image generation)
+  stable-diffusion-webui:
+    image: sd-auto:78
+    container_name: stable-diffusion-webui
+    restart: unless-stopped
+    ports:
+      - '7860:7860'
+    volumes:
+      - ./stable-diffusion/models:/config/models
+      - ./stable-diffusion/outputs:/config/outputs
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Brisbane
+      - CLI_ARGS=--listen
+      # If using CPU only, add:
+      # - COMMANDLINE_ARGS=--use-cpu all --no-half
+    # Uncomment for GPU support if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Whisper (voice-to-text)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+    volumes:
+      - ./whisper/data:/data
+
+  # Qdrant (vector database for AI memory)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+
+  # HuggingFace Text Generation Inference (LLM server)
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: tgi
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./tgi/data:/data
+
+  # XTTS (text-to-speech with voice cloning)
+  xtts:
+    image: ghcr.io/coqui-ai/tts:latest
+    container_name: xtts
+    restart: unless-stopped
+    entrypoint: python
+    command: -m TTS.server.server --model_name tts_models/multilingual/multi-dataset/xtts_v2 --port 5002
+    volumes:
+      - ./xtts/models:/root/.local/share/tts
+      - ./xtts/speakers:/app/speakers
+    ports:
+      - "5002:5002"
+    environment:
+      - COQUI_TOS_AGREED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+# Add more AI/video services as needed
+
+# Additional Documentation for Home Automation Stack
+#
+# General Docker Commands:
+#
+# Start all services:
+# docker-compose -f docker-compose.ai.yml up -d
+#
+# Stop all services:
+# docker-compose -f docker-compose.ai.yml down
+#
+# Restart a specific service:
+# docker-compose -f docker-compose.ai.yml restart <service_name>
+#
+# Backup and Restore:
+#
+# To back up critical data, copy the following directories:
+# - ./frigate/config
+# - ./homeassistant/config
+# - ./ollama/models
+# - ./qdrant/data
+# - ./stable-diffusion/models
+# - ./whisper/data
+#
+# To restore, replace the directories with the backed-up versions.
+#
+# Environment Variables:
+#
+# - FRIGATE_RTSP_PASSWORD: Password for RTSP streams in Frigate.
+# - PUID and PGID: User and group IDs for permissions in Stable Diffusion.
+# - TZ: Timezone for services (e.g., Australia/Brisbane).
+#
+# Service-Specific Notes:
+#
+# Frigate:
+# - Configuration file: ./frigate/config/config.yaml
+# - Media storage: ./frigate/media/
+#
+# Home Assistant:
+# - Main configuration file: ./homeassistant/config/configuration.yaml
+# - Automations: ./homeassistant/config/automations.yaml
+#
+# Stable Diffusion:
+# - GPU vs. CPU: Use CLI_ARGS=--use-cpu all --no-half for CPU-only mode.
+#
+# Ollama:
+# - Run a model: sudo docker exec -it ollama ollama run <model_name>
+# - List models: sudo docker exec -it ollama ollama list
+#
+# Troubleshooting Tips:
+#
+# - Check container logs:
+#   docker logs <container_name>
+#
+# - Verify container status:
+#   docker ps
+#
+# - Restart Docker service if containers fail to start:
+#   sudo systemctl restart docker
+#
+# - Ensure sufficient disk space for large models and media files.
+

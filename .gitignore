@@ -1,0 +1,16 @@
+# Ignore large model, media, and database folders/files
+stable-diffusion/models/
+stable-diffusion/outputs/
+frigate/media/
+homeassistant/config/home-assistant_v2.db
+npm_data/database.sqlite
+ollama/models/
+ovos-docker/
+portainer_data/
+qdrant/data/
+tgi/data/
+xtts/models/
+whisper/data/
+zigbee2mqtt/data/
+*.log
+*.db

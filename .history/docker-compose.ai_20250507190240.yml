@@ -1,0 +1,298 @@
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    shm_size: '64mb'
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./frigate/config:/config
+      - ./frigate/media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '5000:5000' # Frigate UI
+      - '8554:8554' # RTSP
+      - '8555:8555/tcp' # WebRTC
+    environment:
+      - FRIGATE_RTSP_PASSWORD=changeme
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    ports:
+      - '11434:11434'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Documentation for ollama usage
+  #
+  # To run a model using ollama, use the following command:
+  #
+  # sudo docker exec -it ollama ollama run <model_name>
+  #
+  # Example:
+  # sudo docker exec -it ollama ollama run llama3:8b
+  #
+  # To list available models:
+  # sudo docker exec -it ollama ollama list
+  #
+  # Ensure the ollama container is running and accessible on port 11434.
+
+  # Stable Diffusion WebUI (image generation)
+  stable-diffusion-webui:
+    image: sd-auto:78
+    container_name: stable-diffusion-webui
+    restart: unless-stopped
+    ports:
+      - '7860:7860'
+    volumes:
+      - ./stable-diffusion/models:/config/models
+      - ./stable-diffusion/outputs:/config/outputs
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Brisbane
+      - CLI_ARGS=--listen
+      # If using CPU only, add:
+      # - COMMANDLINE_ARGS=--use-cpu all --no-half
+    # Uncomment for GPU support if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Whisper (voice-to-text)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+    volumes:
+      - ./whisper/data:/data
+
+  # Qdrant (vector database for AI memory)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+
+  # HuggingFace Text Generation Inference (LLM server)
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: tgi
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./tgi/data:/data
+
+  # XTTS (text-to-speech with voice cloning)
+  xtts:
+    image: ghcr.io/coqui-ai/tts:latest
+    container_name: xtts
+    restart: unless-stopped
+    entrypoint: tts-server
+    command: >
+      --model_name tts_models/multilingual/multi-dataset/xtts_v2
+      --port 5002
+    volumes:
+      - ./xtts/models:/home/coqui/.local/share/tts
+      - ./xtts/speakers:/app/speakers
+    ports:
+      - "5002:5002"
+    environment:
+      - COQUI_TOS_AGREED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+# Add more AI/video services as needed
+
+# Additional Documentation for Home Automation Stack
+#
+# General Docker Commands:
+#
+# Start all services:
+# docker-compose -f docker-compose.ai.yml up -d
+#
+# Stop all services:
+# docker-compose -f docker-compose.ai.yml down
+#
+# Restart a specific service:
+# docker-compose -f docker-compose.ai.yml restart <service_name>
+#
+# XTTS (Text-to-Speech) Important Notes:
+#
+# - Model Directory Structure: Models are persisted by mapping a host directory
+#   (./xtts/models) to the container's default model cache path 
+#   (/home/coqui/.local/share/tts). This prevents re-downloads on restart.
+#
+# - Voice Cloning: XTTSv2 supports voice cloning from short audio samples (6+ seconds).
+#   Store reference voice samples in ./xtts/speakers/ directory for organization.
+#
+# - GPU Acceleration: XTTSv2 is computationally intensive and strongly benefits from GPU.
+#   Without GPU acceleration, speech generation will be much slower.
+#
+# - First Run: On first startup, XTTSv2 will download a large model (~7GB).
+#   This may take significant time depending on your internet connection.
+#
+# - API Usage: To use the XTTS API for voice cloning, send a POST request to:
+#   http://localhost:5002/api/tts with JSON body containing:
+#   {
+#     "text": "Your text to synthesize",
+#     "speaker_wav": "base64_encoded_audio_sample",
+#     "language": "en" (or other supported language code)
+#   }
+#
+# - Supported Languages: XTTSv2 supports 17 languages including English (en),
+#   Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt),
+#   Polish (pl), Turkish (tr), Russian (ru), Dutch (nl), Czech (cs), Arabic (ar),
+#   Chinese (zh-cn), Japanese (ja), Korean (ko), Hungarian (hu), and Hindi (hi).
+#
+# - Audio Format: For best results with voice cloning, use WAV files with:
+#   * 24kHz sample rate (preferred for XTTSv2, which will resample other rates)
+#   * Minimal background noise
+#   * At least 6 seconds of clear speech
+#
+# Resource Management:
+# 
+# - Multiple AI services running simultaneously (especially Ollama, TGI, 
+#   Stable Diffusion, and XTTS) can be extremely resource-intensive.
+# - Monitor system resources (RAM, VRAM, CPU) regularly using tools like:
+#   * docker stats (for container resource usage)
+#   * nvidia-smi (for GPU usage if using NVIDIA GPUs)
+# - Consider adjusting resource limits for containers if necessary.
+#
+# Networking Overview:
+#
+# - All services run on a Docker bridge network (likely homeautomationstack_default)
+# - Main service access points:
+#   * Frigate UI: http://<host_ip>:5000
+#   * Stable Diffusion WebUI: http://<host_ip>:7860
+#   * Ollama API: http://<host_ip>:11434
+#   * Whisper API: http://<host_ip>:9000
+#   * Qdrant API: http://<host_ip>:6333
+#   * TGI API: http://<host_ip>:8080
+#   * XTTS API: http://<host_ip>:5002
+#
+# GPU Allocation:
+#
+# - Ollama and XTTS are configured to use GPU by default
+# - For stable-diffusion-webui, uncomment the GPU section for much better performance
+# - For TGI (text-generation-inference), consider enabling GPU for practical use
+#   with larger models
+#
+# Text Generation Inference (TGI) Configuration:
+#
+# - The TGI service doesn't specify a model by default
+# - To load a specific model, add environment variables like:
+#   environment:
+#     - MODEL_ID=mistralai/Mistral-7B-Instruct-v0.1
+#
+# Initial Model Downloads:
+#
+# - Several services will download large models on first run:
+#   * Ollama: Models range from 1GB to 65GB+ depending on selection
+#   * TGI: Large LLMs typically 2GB-30GB depending on model
+#   * XTTS: ~7GB for the full XTTSv2 model and dependencies
+#   * Stable Diffusion: Base models ~2-7GB each
+# - Ensure sufficient disk space and a stable internet connection
+# - Initial downloads can take anywhere from minutes to hours
+#
+# Security Considerations:
+#
+# - Change default passwords (like FRIGATE_RTSP_PASSWORD) immediately
+# - If exposing services outside your local network:
+#   * Use strong authentication
+#   * Consider using HTTPS (via reverse proxy)
+#   * Prefer VPN access over direct port forwarding
+#   * Regularly update container images for security patches
+#
+# Updating Services:
+#
+# - Pull latest images: docker-compose -f docker-compose.ai.yml pull
+# - Restart with new images: docker-compose -f docker-compose.ai.yml up -d
+# - Check container logs after updates: docker logs <container_name>
+#
+# PUID/PGID Explanation:
+#
+# - Used for stable-diffusion-webui and potentially other services
+# - Sets internal user/group ID for container processes
+# - Ensures correct file ownership on mounted volumes
+# - Find your host user's IDs with: id -u (PUID) and id -g (PGID)
+#
+# Data Volume Management:
+#
+# - Model and media data volumes can grow very large over time
+# - Check Docker disk usage with: docker system df
+# - Monitor specific volume directories: du -sh ./*/
+# - Consider periodic cleanup of unused models and media
+#
+# Backup and Restore:
+#
+# To back up critical data, copy the following directories:
+# - ./frigate/config and ./frigate/media
+# - ./ollama (entire directory, not just models)
+# - ./qdrant/data
+# - ./stable-diffusion/models and ./stable-diffusion/outputs
+# - ./whisper/data
+# - ./xtts/models and ./xtts/speakers
+#
+# To restore, replace the directories with the backed-up versions.
+# 
+# Environment Variables:
+#
+# - FRIGATE_RTSP_PASSWORD: Password for RTSP streams in Frigate.
+# - PUID and PGID: User and group IDs for permissions in Stable Diffusion.
+# - TZ: Timezone for services (e.g., Australia/Brisbane).
+#
+# Service-Specific Notes:
+#
+# Frigate:
+# - Configuration file: ./frigate/config/config.yaml
+# - Media storage: ./frigate/media/
+#
+# Stable Diffusion:
+# - GPU vs. CPU: Use CLI_ARGS=--use-cpu all --no-half for CPU-only mode.
+#
+# Ollama:
+# - Run a model: sudo docker exec -it ollama ollama run <model_name>
+# - List models: sudo docker exec -it ollama ollama list
+#
+# Note: Home Assistant is defined in a separate compose file (docker-compose.home.yml)
+#
+# Troubleshooting Tips:
+#
+# - Check container logs:
+#   docker logs <container_name>
+#
+# - Verify container status:
+#   docker ps
+#
+# - Restart Docker service if containers fail to start:
+#   sudo systemctl restart docker
+#
+# - Ensure sufficient disk space for large models and media files.
+

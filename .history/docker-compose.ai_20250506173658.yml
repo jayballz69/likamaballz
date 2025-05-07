@@ -1,0 +1,144 @@
+version: '3.8'
+-rw-r--r--  1 root root 1.4K May  5 07:43 webui-user.sh
+-rw-r--r--  1 root root 2.3K May  5 07:43 webui.bat
+-rw-r--r--  1 root root 5.3K May  5 07:43 webui.py
+-rwxr-xr-x  1 root root  11K May  5 07:43 webui.sh
+Mounted .cache
+Mounted config_states
+mkdir: created directory '/stable-diffusion-webui/repositories/CodeFormer'
+mkdir: created directory '/stable-diffusion-webui/repositories/CodeFormer/weights'
+Mounted .cache
+Mounted embeddings
+Mounted config.json
+Mounted models
+Mounted styles.csv
+Mounted ui-config.json
+Mounted extensions
+Installing extension dependencies (if any)
+Traceback (most recent call last):
+  File "/stable-diffusion-webui/webui.py", line 13, in <module>
+    initialize.imports()
+  File "/stable-diffusion-webui/modules/initialize.py", line 23, in imports
+    import gradio  # noqa: F401
+  File "/opt/conda/lib/python3.10/site-packages/gradio/__init__.py", line 3, in <module>
+    import gradio.components as components
+  File "/opt/conda/lib/python3.10/site-packages/gradio/components/__init__.py", line 3, in <module>
+    from gradio.components.bar_plot import BarPlot
+  File "/opt/conda/lib/python3.10/site-packages/gradio/components/bar_plot.py", line 7, in <module>
+    import altair as alt
+  File "/opt/conda/lib/python3.10/site-packages/altair/__init__.py", line 649, in <module>
+    from altair.vegalite import *
+  File "/opt/conda/lib/python3.10/site-packages/altair/vegalite/__init__.py", line 2, in <module>
+    from .v5 import *
+  File "/opt/conda/lib/python3.10/site-packages/altair/vegalite/v5/__init__.py", line 2, in <module>
+    from altair.expr.core import datum
+  File "/opt/conda/lib/python3.10/site-packages/altair/expr/__init__.py", line 11, in <module>
+    from altair.expr.core import ConstExpression, FunctionExpression
+  File "/opt/conda/lib/python3.10/site-packages/altair/expr/core.py", line 6, in <module>
+    from altair.utils import SchemaBase
+  File "/opt/conda/lib/python3.10/site-packages/altair/utils/__init__.py", line 14, in <module>
+    from .plugin_registry import PluginRegistry
+  File "/opt/conda/lib/python3.10/site-packages/altair/utils/plugin_registry.py", line 13, in <module>
+    from typing_extensions import TypeIs
+ImportError: cannot import name 'TypeIs' from 'typing_extensions' (/opt/conda/lib/python3.10/site-packages/typing_extensions.py)
+jayballz69@DESKTOP-R1SHDTG:~/stable-diffusion-webui/stable-diffusion-webui/stable-diffusion-webui-docker$services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    shm_size: '64mb'
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./frigate/config:/config
+      - ./frigate/media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '5000:5000' # Frigate UI
+      - '8554:8554' # RTSP
+      - '8555:8555/tcp' # WebRTC
+    environment:
+      - FRIGATE_RTSP_PASSWORD=changeme
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    ports:    docker exec -it ollama ollama pull openhermes
+      - '11434:11434'
+
+  # Documentation for ollama usage
+  #
+  # To run a model using ollama, use the following command:
+  #
+  # sudo docker exec -it ollama ollama run <model_name>
+  #
+  # Example:
+  # sudo docker exec -it ollama ollama run llama3:8b
+  #
+  # To list available models:
+  # sudo docker exec -it ollama ollama list
+  #
+  # Ensure the ollama container is running and accessible on port 11434.
+
+  # Stable Diffusion WebUI (image generation)
+  stable-diffusion-webui:
+    image: sd-auto:78
+    container_name: stable-diffusion-webui
+    restart: unless-stopped
+    ports:
+      - '7860:7860'
+    volumes:
+      - ./stable-diffusion/models:/config/models
+      - ./stable-diffusion/outputs:/config/outputs
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Brisbane
+      - CLI_ARGS=--listen
+      # If using CPU only, add:
+      # - COMMANDLINE_ARGS=--use-cpu all --no-half
+    # Uncomment for GPU support if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Whisper (voice-to-text)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+    volumes:
+      - ./whisper/data:/data
+
+  # Qdrant (vector database for AI memory)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+
+  # HuggingFace Text Generation Inference (LLM server)
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: tgi
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./tgi/data:/data
+
+# Add more AI/video services as needed
+
