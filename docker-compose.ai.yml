@@ -1,3 +1,24 @@
+#
+# NOTE: This stack is part of a multi-file Docker Compose setup.
+#
+# Other Compose files in this workspace:
+#   - docker-compose.home.yml: Core home automation services (e.g., Home Assistant, Zigbee2MQTT, etc.)
+#   - docker-compose.utils.yml: Utility/infrastructure services (Portainer, Watchtower, Nginx Proxy Manager, Tailscale, Cloudflared)
+#
+# This file (docker-compose.ai.yml) contains AI/ML services:
+#   - frigate
+#   - ollama
+#   - stable-diffusion-webui
+#   - whisper
+#   - qdrant
+#   - tgi
+#   - xtts
+#   - ovos
+#
+# See the other files for additional services and to bring up the full stack, use:
+#   docker-compose -f "docker-compose.ai.yml" -f "docker-compose.home.yml" -f "docker-compose.utils.yml" up -d
+#
+
 services:
   frigate:
     image: ghcr.io/blakeblackshear/frigate:stable
@@ -56,8 +77,8 @@ services:
     ports:
       - '7860:7860'
     volumes:
-      - ./stable-diffusion/models:/config/models
-      - ./stable-diffusion/outputs:/config/outputs
+      - ./stable-diffusion/models:/models
+      - ./stable-diffusion/outputs:/outputs
     environment:
       - PUID=1000
       - PGID=1000
@@ -79,8 +100,13 @@ services:
     image: rhasspy/wyoming-whisper:latest
     container_name: whisper
     restart: unless-stopped
+    command: >
+      --model base.en
+      --language en
+      --data-dir /data
+      --download-dir /data
     ports:
-      - '9000:9000'
+      - '10300:10300'
     volumes:
       - ./whisper/data:/data
 
@@ -106,30 +132,186 @@ services:
 
   # XTTS (text-to-speech with voice cloning)
   xtts:
-    image: synesthesiam/coqui-tts:latest # The image we resolved the pull error for
+    image: ghcr.io/coqui-ai/tts:latest  # Official Coqui image for XTTSv2 and GPU
     container_name: xtts
     restart: unless-stopped
-    entrypoint: tts-server              # Explicitly run tts-server
+    entrypoint: tts-server
     command: >
-      --model_name tts_models/multilingual/multi-dataset/xtts_v2
+      --model_path /workspace/model/my_xtts_v2_local
+      --config_path /workspace/model/my_xtts_v2_local/config.json
+      --speakers_file_path /workspace/model/my_xtts_v2_local/speakers_xtts.pth
       --port 5002
-      # You can add --use_cuda true here if you like, but the deploy section is key
+      --use_cuda true
     volumes:
-      - ./xtts/models:/root/.local/share/tts # We still need to verify this internal path from logs for THIS image
-      - ./xtts/speakers:/app/speakers
+      - ./xtts/models:/workspace/model
+      - ./xtts/speakers:/workspace/speakers
     ports:
       - "5002:5002"
     environment:
       - COQUI_TOS_AGREED=1
-    deploy:                                 # This gives the container GPU access
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+  # NOTE: synesthesiam/coqui-tts:latest does NOT support XTTSv2 models.
+  # Use ghcr.io/coqui-ai/tts:latest for XTTSv2 support.
+  # Model files must be in ./xtts/models/my_xtts_v2_local/ on the host.
+  # Keep this service running until confirmed stable.
+
+  # TROUBLESHOOTING NOTES for XTTSv2/Coqui TTS setup:
+  #
+  # 1. Model files must be named exactly:
+  #    - config.json
+  #    - vocab.json
+  #    - model.pth
+  #    - speakers_xtts.pth
+  #
+  # 2. Do NOT use --model_dir (unsupported by tts-server). Use --model_path <directory> instead.
+  #
+  # 3. If you see 'TypeError: expected str, bytes or os.PathLike object, not NoneType',
+  #    it means config.json was not found or is misnamed.
+  #
+  # 4. If you see 'unrecognized arguments: --model_dir', you are using the wrong argument.
+  #
+  # 5. Always verify file visibility inside the container with:
+  #      docker-compose -f "docker-compose.ai.yml" exec xtts ls -lA /workspace/model/my_xtts_v2_local/
+  #
+  # 6. If files appear as config.json.json or vocab.json.json, remove the extra .json extension.
+  #
+  # 7. After any change, restart the container and check logs:
+  #      docker-compose -f "docker-compose.ai.yml" up -d --force-recreate xtts
+  #      docker-compose -f "docker-compose.ai.yml" logs -f xtts
+  #
+  # 8. These steps have been tested and should not be repeated unless the error reoccurs.
+  #
+  # 9. If new errors appear, document them here before further troubleshooting.
+  #
+  # END TROUBLESHOOTING NOTES
+
+  # XTTSv2 API Usage Example (PowerShell, Built-in Voice)
+  #
+  # To synthesize speech using a built-in XTTSv2 voice from Windows PowerShell:
+  #
+  # 1. Prepare your text (multi-line supported):
+  #     $poemText = @"
+  #     In the dappled hush of the ancient wood,
+  #     Jacob and Ryan tread where few have stood;
+  #     ...
+  #     "@
+  #
+  # 2. Set the output directory (create if needed):
+  #     $outputDir = "J:\workspace\Home automation stack\XTTS-v2\audio_outputs\"
+  #     If (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
+  #
+  # 3. Synthesize speech using a built-in voice (e.g., Claribel Dervla):
+  #     Invoke-WebRequest -Uri "http://localhost:5002/api/tts?text=$([System.Web.HttpUtility]::UrlEncode($poemText))&speaker_id=Claribel Dervla&language_id=en" -Method GET -OutFile "$outputDir\poem_claribel_cpu.wav"
+  #
+  # - Replace 'Claribel Dervla' with any available built-in speaker_id.
+  # - Replace 'en' with the desired language_id if needed.
+  # - The output WAV file will be saved to the specified directory.
+  #
+  # This approach is confirmed working (May 2025).
+
+  #
+  # XTTSv2 API Usage Example (PowerShell, built-in voice)
+  #
+  # To synthesize speech using a built-in voice (e.g., "Claribel Dervla") and save the output as a WAV file:
+  #
+  # $poemText = @"
+  # In the dappled hush of the ancient wood,
+  # Jacob and Ryan tread where few have stood;
+  # With baskets poised and hearts alight,
+  # They hunt small caps in the morning light.
+  # "Observe," whispers nature's gentle guide,
+  # "As Jacob stoops where the mosses hide;
+  # Ryan marvels at a toadstool fair,
+  # Its ruby crown glowing rich and rare."
+  # Through fern and frond their laughter rings,
+  # As spores beneath their footsteps sing;
+  # Two kindred souls on a fungal quest—
+  # In mushroom magic, they're truly blessed.
+  # "@
+  # $outputDir = "J:\workspace\Home automation stack\XTTS-v2\audio_outputs\"
+  # If (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
+  # Invoke-WebRequest -Uri "http://localhost:5002/api/tts?text=$([System.Web.HttpUtility]::UrlEncode($poemText))&speaker_id=Claribel Dervla&language_id=en" -Method GET -OutFile "$outputDir\poem_claribel_cpu.wav"
+  #
+  # This will synthesize the text using the built-in voice and save the result as a WAV file.
+  #
+  # For more voices, see the XTTSv2 documentation or query the API for available speaker IDs.
+
+  # OVOS (OpenVoiceOS) - Voice Assistant Service
+  #
+  # This service runs the OVOS core, configured to use your existing Whisper (Wyoming STT) and XTTS (Coqui TTS) services.
+  #
+  # Configuration and data are persisted in ./ovos_config/config and ./ovos_config/data.
+  #
+  # Audio input/output in Docker is complex on Windows; for now, focus on core/skill testing and API integration.
+  #
+  # To start OVOS:
+  #   docker-compose -f "docker-compose.ai.yml" up -d ovos
+  #
+  # To view logs:
+  #   docker-compose -f "docker-compose.ai.yml" logs -f ovos
+  #
+  # The OVOS GUI websocket will be available on port 8181.
+  #
+  # mycroft.conf is mapped from ./ovos_config/config/mycroft.conf
+  #
+  # For more info, see https://github.com/OpenVoiceOS/ovos-docker
+
+  ovos_messagebus:
+    image: smartgic/ovos-messagebus:latest
+    container_name: ovos_messagebus
+    hostname: ovos_messagebus
+    restart: unless-stopped
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft:ro
+    # Use port 8181 directly without mapping to a different port
+    ports:
+      - "8181:8181"
+    environment:
+      - TZ=Australia/Brisbane
+    networks:
+      - ovos_network
+    healthcheck:
+      test: ["CMD", "curl", "--header", "Connection: Upgrade", "--header", "Upgrade: Websocket", "http://127.0.0.1:8181/core"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    
+  ovos:
+    image: smartgic/ovos-core:latest
+    container_name: ovos
+    restart: unless-stopped
+    depends_on:
+      ovos_messagebus:
+        condition: service_healthy
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft
+      - ./ovos_config/data:/home/ovos/.local/share/mycroft
+    ports:
+      - "8183:8181"
+    environment:
+      - TZ=Australia/Brisbane
+      - MESSAGEBUS_HOST=ovos_messagebus
+      - MESSAGEBUS_PORT=8181
+    networks:
+      - ovos_network
+    # If all services are in this compose file, OVOS can resolve 'whisper' and 'xtts' by container name.
+    # For advanced audio passthrough, see OVOS docs (Linux only).
 
 # Add more AI/video services as needed
+
+# Create a dedicated network for OVOS services
+networks:
+  ovos_network:
+    name: ovos_network
 
 # Additional Documentation for Home Automation Stack
 #
@@ -193,10 +375,11 @@ services:
 #   * Frigate UI: http://<host_ip>:5000
 #   * Stable Diffusion WebUI: http://<host_ip>:7860
 #   * Ollama API: http://<host_ip>:11434
-#   * Whisper API: http://<host_ip>:9000
+#   * Whisper API: http://<host_ip>:10300
 #   * Qdrant API: http://<host_ip>:6333
 #   * TGI API: http://<host_ip>:8080
 #   * XTTS API: http://<host_ip>:5002
+#   * OVOS GUI WebSocket: http://<host_ip>:8181
 #
 # GPU Allocation:
 #
@@ -286,6 +469,7 @@ services:
 # - ./stable-diffusion/models and ./stable-diffusion/outputs
 # - ./whisper/data
 # - ./xtts/models and ./xtts/speakers
+# - ./ovos_config/config and ./ovos_config/data
 #
 # To restore, replace the directories with the backed-up versions.
 #
@@ -308,6 +492,10 @@ services:
 # - Run a model: sudo docker exec -it ollama ollama run <model_name>
 # - List models: sudo docker exec -it ollama ollama list
 #
+# OVOS:
+# - Configuration file: ./ovos_config/config/mycroft.conf
+# - Data storage: ./ovos_config/data/
+#
 # Note: Home Assistant is defined in a separate compose file (docker-compose.home.yml)
 #
 # Troubleshooting Tips:
@@ -322,4 +510,21 @@ services:
 #   sudo systemctl restart docker
 #
 # - Ensure sufficient disk space for large models and media files.
+
+#
+# TROUBLESHOOTING LOG (as of May 2025)
+#
+# OVOS (OpenVoiceOS) container troubleshooting steps and findings:
+#
+# 1. Confirmed Python3 and print() work in ovos container (hello.py test).
+# 2. Confirmed websocket-client, ssl, and socket libraries import successfully (test_import.py).
+# 3. Any script attempting websocket.create_connection() to ovos_messagebus:8181 exits with NO output (even with verbose tracing and exception handling).
+# 4. Output redirection to /tmp/*.txt works for all scripts except those that attempt a websocket connection.
+# 5. No import errors, no Python exceptions, no output at all from websocket connection attempts.
+# 6. This suggests a low-level crash, segfault, or abrupt process kill (OOM, missing dependency, or C extension bug) in websocket-client or its dependencies.
+# 7. Next steps: Check container logs for segfaults/OOM, try a simple TCP socket test (test_tcp.py), and consider downgrading websocket-client.
+# 8. All diagnostic scripts and PowerShell commands are in the workspace for future reference.
+#
+# If migrating or repeating setup, review this log and the test scripts in the workspace for step-by-step troubleshooting.
+#
 
