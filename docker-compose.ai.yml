@@ -295,6 +295,8 @@ services:
     volumes:
       - ./ovos_config/config:/home/ovos/.config/mycroft
       - ./ovos_config/data:/home/ovos/.local/share/mycroft
+      - ./test_tcp.py:/test_tcp.py  # Mount test_tcp.py for container diagnostics
+      - ./test_ws_minimal.py:/test_ws_minimal.py  # Mount minimal WebSocket test script
     ports:
       - "8183:8181"
     environment:
@@ -562,6 +564,41 @@ networks:
 #      - If `test_tcp.py` also fails (silently or with "Connection Refused"): This would indicate a more fundamental issue with Python's `socket` module making outbound TCP connections from within this container, which would be extremely puzzling given `curl` works.
 #    - Check for OOM kills: `docker inspect ovos` for `State.OOMKilled` after a script attempt.
 #    - Review `docker logs ovos_messagebus` again for any clues during the Python client's connection attempts (though it previously only showed the `curl` attempts).
+#
+# [TCP Socket Test Result - May 12, 2025]
+#
+# - Ran test_tcp.py in ovos container:
+#     --- TCP Socket Test Started ---
+#     SUCCESS: Connected to ovos_messagebus:8181
+#     --- TCP Socket Test Finished ---
+# - Conclusion: Python in ovos container can connect to ovos_messagebus:8181 via TCP. Docker networking is working.
+# - Next: Test a minimal WebSocket client (without enableTrace) to isolate if the issue is with websocket-client or OVOS usage.
+# - If minimal WebSocket test fails, try downgrading/upgrading websocket-client in the container.
+#
+# Document all findings and update this log after each step.
+#
+# [File Not Found - test_tcp.py]
+#
+# - Observed: 'ls: cannot access '/test_tcp.py': No such file or directory' in ovos container.
+# - Cause: test_tcp.py was not mounted into the container.
+# - Fix: Added a volume mapping for test_tcp.py in the ovos service in docker-compose.ai.yml:
+#     - ./test_tcp.py:/test_tcp.py
+# - After updating the compose file, restart the ovos container:
+#     docker-compose -f "docker-compose.ai.yml" up -d ovos
+# - Then verify the file is present:
+#     docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /test_tcp.py
+# - Proceed with the TCP test as before.
+#
+# Next troubleshooting steps:
+# 1. Check if /test_tcp.py exists and is executable in the ovos container:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /test_tcp.py
+# 2. Check if /tcp_output.txt exists and has content:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /tcp_output.txt
+#    docker-compose -f "docker-compose.ai.yml" exec ovos cat /tcp_output.txt
+# 3. Run the TCP test interactively to see any errors:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos python3 /test_tcp.py
+#
+# Document all findings and update this log after each step.
 #
 # 8. Current `docker-compose.ai.yml` for OVOS services (relevant parts):
 #    - `ovos_messagebus`: image `smartgic/ovos-messagebus:latest`, hostname `ovos_messagebus`, `TZ`, healthcheck, on `ovos_network`, port `8181:8181` (or `8182:8181` previously, user may still be adjusting this).
