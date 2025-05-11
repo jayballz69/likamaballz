@@ -512,19 +512,61 @@ networks:
 # - Ensure sufficient disk space for large models and media files.
 
 #
-# TROUBLESHOOTING LOG (as of May 2025)
+# TROUBLESHOOTING LOG - OVOS (OpenVoiceOS) Setup (as of May 11-12, 2025)
 #
-# OVOS (OpenVoiceOS) container troubleshooting steps and findings:
+# Goal: Get OpenVoiceOS (ovos-core & ovos-messagebus) running reliably.
 #
-# 1. Confirmed Python3 and print() work in ovos container (hello.py test).
-# 2. Confirmed websocket-client, ssl, and socket libraries import successfully (test_import.py).
-# 3. Any script attempting websocket.create_connection() to ovos_messagebus:8181 exits with NO output (even with verbose tracing and exception handling).
-# 4. Output redirection to /tmp/*.txt works for all scripts except those that attempt a websocket connection.
-# 5. No import errors, no Python exceptions, no output at all from websocket connection attempts.
-# 6. This suggests a low-level crash, segfault, or abrupt process kill (OOM, missing dependency, or C extension bug) in websocket-client or its dependencies.
-# 7. Next steps: Check container logs for segfaults/OOM, try a simple TCP socket test (test_tcp.py), and consider downgrading websocket-client.
-# 8. All diagnostic scripts and PowerShell commands are in the workspace for future reference.
+# Initial Issues & Resolutions:
+# 1. Image Not Found:
+#    - Problem: `openvoiceos/ovos-core-dev:latest` image pull failed ("repository does not exist or may require 'docker login'").
+#    - Fix: Changed image for `ovos` service to `smartgic/ovos-core:latest`.
 #
-# If migrating or repeating setup, review this log and the test scripts in the workspace for step-by-step troubleshooting.
+# 2. Timezone Configuration TypeError:
+#    - Problem: `ovos` container was in a restart loop due to `TypeError: string indices must be integers, not 'str'` in `ovos_config/locale.py` when trying to get `Configuration()["location"]["timezone"]["code"]`.
+#    - Fix: Added `TZ=Australia/Brisbane` to the `environment` section of the `ovos` service in `docker-compose.ai.yml`. This resolved the TypeError.
+#
+# 3. Host Port Conflict & Initial Message Bus Connection Issues:
+#    - Problem: Suspected conflict with both `ovos` (for GUI websocket) and `ovos_messagebus` trying to use host port 8181. `ovos-core` logs showed "Connection Refused. Is Messagebus Service running?".
+#    - Investigation (Network Mode):
+#      - `docker inspect ovos` initially showed `NetworkMode: host` (reason for this state vs. compose file was unclear but was observed).
+#      - Confirmed `docker-compose.ai.yml` was later updated to ensure both `ovos` and `ovos_messagebus` use bridge networking via a custom network `ovos_network`.
+#    - Fix (Port Mapping): Updated `docker-compose.ai.yml` so:
+#      - `ovos_messagebus` maps its internal port 8181 to host port `8182` (e.g., `ports: - "8182:8181"`).
+#      - `ovos` (core) maps its internal port 8181 (for GUI) to host port `8181` (e.g., `ports: - "8181:8181"`).
+#      - This resolved direct host port conflicts.
+#    - Fix (`mycroft.conf` for client): Updated `mycroft.conf` to ensure `message_bus_client.host` was `ovos_messagebus` (service name) and `port` was `8181`.
+#    - Fix (Environment Variables for client): Added `MESSAGEBUS_HOST=ovos_messagebus` and `MESSAGEBUS_PORT=8181` to `ovos` service environment in `docker-compose.ai.yml` to ensure client configuration.
+#    - Fix (Service Readiness): Added a `healthcheck` to `ovos_messagebus` and `depends_on: ovos_messagebus: condition: service_healthy` to `ovos` in `docker-compose.ai.yml` to prevent `ovos-core` from starting before `ovos_messagebus` is fully ready.
+#
+# 4. Persistent "Connection Refused" from `ovos_bus_client` despite `curl` Success:
+#    - Status: `ovos_messagebus` reported healthy. `ovos-core` started after messagebus was healthy.
+#    - `curl` Test: `docker exec ovos curl -v http://ovos_messagebus:8181/core` (and using direct IP `172.20.0.2`) **succeeded**. It resolved the hostname, established a TCP connection, and `ovos_messagebus` (TornadoServer) responded with HTTP 400 (correctly wanting a WebSocket upgrade). `ovos_messagebus` logs confirmed receiving these HTTP requests from `ovos-core`'s IP.
+#    - `ovos-core` Logs: Still showed `WARNING - Connection Refused. Is Messagebus Service running?` from `ovos_bus_client.client.client`, even when `mycroft.conf` used the direct IP and `log_level` was `DEBUG`. The DEBUG logs for `ovos-core` did not provide a more specific Python exception trace before this warning.
+#
+# 5. Python Script Execution Debugging (via `docker exec`):
+#    - Problem: Initial attempts to run Python test scripts (`test_ws.py`, `test_ws_simple.py`) in `ovos` container via `docker exec` produced no visible output, though `$LASTEXITCODE` was 0 for simple scripts.
+#    - Fix (Output Capturing): Used `sh -c "python3 script.py > /output.txt 2>&1"` inside `docker exec`, then `cat /output.txt`.
+#    - `hello.py` (simple print statement): Successfully executed and produced output using this method.
+#    - `test_import.py` (testing `import websocket, ssl, socket, sys, traceback`): Successfully executed and all imports were confirmed working (websocket-client v1.8.0, Python 3.13).
+#    - `test_ws_final.py` (and similar scripts that included `websocket.enableTrace(True)` and/or `websocket.create_connection(...)`): Resulted in an **empty output file** (`/tmp/final_ws_output.txt`). No `print` statements from the script (even those at the very beginning or in `except` blocks with tracebacks) were captured.
+#
+# 6. Current Hypothesis for "Connection Refused" & Silent Python Script Failure:
+#    - The `ovos_bus_client` in `ovos-core` (and standalone Python scripts attempting WebSocket connections using `websocket-client` library) seems to encounter a low-level issue when `websocket.enableTrace(True)` or `websocket.create_connection()` is called.
+#    - This results in what appears to be a silent crash or abrupt exit of the Python process/script without producing standard output/error that can be redirected to a file, even when basic Python execution and imports work fine.
+#    - This suggests a possible segfault, OOM kill (though less likely without other signs), a missing runtime dependency for a C extension used by `websocket-client`, or a critical bug in `websocket-client==1.8.0` or its interaction with Python 3.13 in this specific Docker container environment when network operations are initiated.
+#
+# 7. Next Suggested Diagnostic Steps (Building on User's Log):
+#    - (Done) Verify container IPs with `docker network inspect ovos_network`. Current: `ovos_messagebus` is `172.20.0.2`, `ovos` is `172.20.0.3`.
+#    - **Crucial Next Test:** Execute a simple Python TCP socket connection test (`test_tcp.py`) from `ovos` to `ovos_messagebus` (IP `172.20.0.2`, port `8181`) to completely bypass the `websocket-client` library for the initial TCP handshake.
+#      - If `test_tcp.py` succeeds: The problem is almost certainly within the `websocket-client` library's initialization or connection establishment code. Next steps would be to try a minimal websocket connection *without* `enableTrace(True)` first, then consider downgrading/upgrading `websocket-client`.
+#      - If `test_tcp.py` also fails (silently or with "Connection Refused"): This would indicate a more fundamental issue with Python's `socket` module making outbound TCP connections from within this container, which would be extremely puzzling given `curl` works.
+#    - Check for OOM kills: `docker inspect ovos` for `State.OOMKilled` after a script attempt.
+#    - Review `docker logs ovos_messagebus` again for any clues during the Python client's connection attempts (though it previously only showed the `curl` attempts).
+#
+# 8. Current `docker-compose.ai.yml` for OVOS services (relevant parts):
+#    - `ovos_messagebus`: image `smartgic/ovos-messagebus:latest`, hostname `ovos_messagebus`, `TZ`, healthcheck, on `ovos_network`, port `8181:8181` (or `8182:8181` previously, user may still be adjusting this).
+#    - `ovos`: image `smartgic/ovos-core:latest`, `depends_on: ovos_messagebus: condition: service_healthy`, `TZ`, `MESSAGEBUS_HOST=ovos_messagebus`, `MESSAGEBUS_PORT=8181`, on `ovos_network`, GUI port `8183:8181` (or `8181:8181` previously).
+#
+# 9. All diagnostic Python scripts (`hello.py`, `test_import.py`, `test_ws_final.py`, `test_tcp.py`) and PowerShell commands are being kept by the user in their workspace for future reference.
 #
 
