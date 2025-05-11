@@ -570,3 +570,36 @@ networks:
 # 9. All diagnostic Python scripts (`hello.py`, `test_import.py`, `test_ws_final.py`, `test_tcp.py`) and PowerShell commands are being kept by the user in their workspace for future reference.
 #
 
+#
+# --- GitHub Update Instructions (for this stack) ---
+#
+# To commit and push changes to the GitHub repository (https://github.com/jayballz69/likamaballz):
+#
+# 1. Stage your changes (e.g., after editing this file):
+#      git add docker-compose.ai.yml
+#
+# 2. Commit with a descriptive message:
+#      git commit -m "Describe your change here"
+#
+# 3. Push to the main branch on GitHub:
+#      git push origin main
+#
+# If you need to add new files, use:
+#      git add <filename>
+#
+# If you want to check the status before committing:
+#      git status
+#
+# If you need to set up the remote (first time only):
+#      git remote add origin https://github.com/jayballz69/likamaballz.git
+#
+# If you need to change the remote URL:
+#      git remote set-url origin https://github.com/jayballz69/likamaballz.git
+#
+# .gitignore is already set up to avoid committing large model/media/data files.
+#
+# For more details, see the GitHub documentation or ask your AI assistant.
+#
+# --- End GitHub Update Instructions ---
+#
+
