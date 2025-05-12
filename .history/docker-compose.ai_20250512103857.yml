@@ -1,0 +1,811 @@
+#
+# NOTE: This stack is part of a multi-file Docker Compose setup.
+#
+# Other Compose files in this workspace:
+#   - docker-compose.home.yml: Core home automation services (e.g., Home Assistant, Zigbee2MQTT, etc.)
+#   - docker-compose.utils.yml: Utility/infrastructure services (Portainer, Watchtower, Nginx Proxy Manager, Tailscale, Cloudflared)
+#
+# This file (docker-compose.ai.yml) contains AI/ML services:
+#   - frigate
+#   - ollama
+#   - stable-diffusion-webui
+#   - whisper
+#   - qdrant
+#   - tgi
+#   - xtts
+#   - ovos
+#
+# See the other files for additional services and to bring up the full stack, use:
+#   docker-compose -f "docker-compose.ai.yml" -f "docker-compose.home.yml" -f "docker-compose.utils.yml" up -d
+#
+
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    shm_size: '64mb'
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./frigate/config:/config
+      - ./frigate/media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '5000:5000' # Frigate UI
+      - '8554:8554' # RTSP
+      - '8555:8555/tcp' # WebRTC
+    environment:
+      - FRIGATE_RTSP_PASSWORD=changeme
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    ports:
+      - '11434:11434'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Documentation for ollama usage
+  #
+  # To run a model using ollama, use the following command:
+  #
+  # sudo docker exec -it ollama ollama run <model_name>
+  #
+  # Example:
+  # sudo docker exec -it ollama ollama run llama3:8b
+  #
+  # To list available models:
+  # sudo docker exec -it ollama ollama list
+  #
+  # Ensure the ollama container is running and accessible on port 11434.
+
+  # Stable Diffusion WebUI (image generation)
+  stable-diffusion-webui:
+    image: sd-auto:78
+    container_name: stable-diffusion-webui
+    restart: unless-stopped
+    ports:
+      - '7860:7860'
+    volumes:
+      - ./stable-diffusion/models:/models
+      - ./stable-diffusion/outputs:/outputs
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Brisbane
+      - CLI_ARGS=--listen
+      # If using CPU only, add:
+      # - COMMANDLINE_ARGS=--use-cpu all --no-half
+    # Uncomment for GPU support if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Whisper (voice-to-text)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: whisper
+    restart: unless-stopped
+    command: >
+      --model base.en
+      --language en
+      --data-dir /data
+      --download-dir /data
+    ports:
+      - '10300:10300'
+    volumes:
+      - ./whisper/data:/data
+
+  # Qdrant (vector database for AI memory)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+
+  # HuggingFace Text Generation Inference (LLM server)
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: tgi
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./tgi/data:/data
+
+  # XTTS (text-to-speech with voice cloning)
+  xtts:
+    image: ghcr.io/coqui-ai/tts:latest  # Official Coqui image for XTTSv2 and GPU
+    container_name: xtts
+    restart: unless-stopped
+    entrypoint: tts-server
+    command: >
+      --model_path /workspace/model/my_xtts_v2_local
+      --config_path /workspace/model/my_xtts_v2_local/config.json
+      --speakers_file_path /workspace/model/my_xtts_v2_local/speakers_xtts.pth
+      --port 5002
+      --use_cuda true
+    volumes:
+      - ./xtts/models:/workspace/model
+      - ./xtts/speakers:/workspace/speakers
+    ports:
+      - "5002:5002"
+    environment:
+      - COQUI_TOS_AGREED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  # NOTE: synesthesiam/coqui-tts:latest does NOT support XTTSv2 models.
+  # Use ghcr.io/coqui-ai/tts:latest for XTTSv2 support.
+  # Model files must be in ./xtts/models/my_xtts_v2_local/ on the host.
+  # Keep this service running until confirmed stable.
+
+  # TROUBLESHOOTING NOTES for XTTSv2/Coqui TTS setup:
+  #
+  # 1. Model files must be named exactly:
+  #    - config.json
+  #    - vocab.json
+  #    - model.pth
+  #    - speakers_xtts.pth
+  #
+  # 2. Do NOT use --model_dir (unsupported by tts-server). Use --model_path <directory> instead.
+  #
+  # 3. If you see 'TypeError: expected str, bytes or os.PathLike object, not NoneType',
+  #    it means config.json was not found or is misnamed.
+  #
+  # 4. If you see 'unrecognized arguments: --model_dir', you are using the wrong argument.
+  #
+  # 5. Always verify file visibility inside the container with:
+  #      docker-compose -f "docker-compose.ai.yml" exec xtts ls -lA /workspace/model/my_xtts_v2_local/
+  #
+  # 6. If files appear as config.json.json or vocab.json.json, remove the extra .json extension.
+  #
+  # 7. After any change, restart the container and check logs:
+  #      docker-compose -f "docker-compose.ai.yml" up -d --force-recreate xtts
+  #      docker-compose -f "docker-compose.ai.yml" logs -f xtts
+  #
+  # 8. These steps have been tested and should not be repeated unless the error reoccurs.
+  #
+  # 9. If new errors appear, document them here before further troubleshooting.
+  #
+  # END TROUBLESHOOTING NOTES
+
+  # XTTSv2 API Usage Example (PowerShell, Built-in Voice)
+  #
+  # To synthesize speech using a built-in XTTSv2 voice from Windows PowerShell:
+  #
+  # 1. Prepare your text (multi-line supported):
+  #     $poemText = @"
+  #     In the dappled hush of the ancient wood,
+  #     Jacob and Ryan tread where few have stood;
+  #     ...
+  #     "@
+  #
+  # 2. Set the output directory (create if needed):
+  #     $outputDir = "J:\workspace\Home automation stack\XTTS-v2\audio_outputs\"
+  #     If (-Not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir }
+  #
+  # 3. Synthesize speech using a built-in voice (e.g., Claribel Dervla):
+  #     Invoke-WebRequest -Uri "http://localhost:5002/api/tts?text=$([System.Web.HttpUtility]::UrlEncode($poemText))&speaker_id=Claribel Dervla&language_id=en" -Method GET -OutFile "$outputDir\poem_claribel_cpu.wav"
+  #
+  # - Replace 'Claribel Dervla' with any available built-in speaker_id.
+  # - Replace 'en' with the desired language_id if needed.
+  # - The output WAV file will be saved to the specified directory.
+  #
+  # This approach is confirmed working (May 2025).
+
+  #
+  # XTTSv2 API Usage Example (PowerShell, robust and cross-platform)
+  #
+  # IMPORTANT: Use [System.Net.WebUtility]::UrlEncode() for all query parameters.
+  # [System.Web.HttpUtility] is not available in PowerShell Core or modern .NET.
+  #
+  # If you see:
+  #   Unable to find type [System.Web.HttpUtility].
+  #   ...
+  #   + CategoryInfo          : InvalidOperation: (System.Web.HttpUtility:TypeName) [], RuntimeException
+  #   + FullyQualifiedErrorId : TypeNotFound
+  #
+  # ...replace all [System.Web.HttpUtility]::UrlEncode(...) with [System.Net.WebUtility]::UrlEncode(...)
+  #
+  # Example (PowerShell):
+  #
+  # $storyText = @"
+  # In the heart of Thornlands, where the fig trees whispered secrets to the Queensland moon, ...
+  # "@
+  # $speakerName = "Damien Black"
+  # $languageCode = "en"
+  # $baseOutputDir = "J:\workspace\Home automation stack\XTTS-v2\audio_outputs\"
+  # $outputFileName = "midnight_tinkerer_damien_$(Get-Date -Format 'yyyyMMddHHmmss').wav"
+  # $fullOutputPath = Join-Path -Path $baseOutputDir -ChildPath $outputFileName
+  # $xttsServerUri = "http://localhost:5002/api/tts"
+  #
+  # Try {
+  #     If (-Not (Test-Path $baseOutputDir)) {
+  #         New-Item -ItemType Directory -Path $baseOutputDir -Force | Out-Null
+  #     }
+  #     $encodedText = [System.Net.WebUtility]::UrlEncode($storyText)
+  #     $encodedSpeakerName = [System.Net.WebUtility]::UrlEncode($speakerName)
+  #     $requestUri = "$xttsServerUri`?text=$($encodedText)&speaker_id=$($encodedSpeakerName)&language_id=$languageCode"
+  #     Invoke-WebRequest -Uri $requestUri -Method GET -OutFile $fullOutputPath -TimeoutSec 300
+  #     If (Test-Path $fullOutputPath -PathType Leaf) {
+  #         $fileInfo = Get-Item $fullOutputPath
+  #         If ($fileInfo.Length -gt 100) {
+  #             Write-Host "SUCCESS: Audio file saved to $fullOutputPath (Size: $($fileInfo.Length) bytes)"
+  #         } Else {
+  #             Write-Warning "WARNING: Output file was created but is very small (Size: $($fileInfo.Length) bytes). It might be an error message from the server instead of audio."
+  #         }
+  #     } Else {
+  #         Write-Error "ERROR: Audio file was not created at $fullOutputPath. Check Invoke-WebRequest errors above and XTTS server logs."
+  #     }
+  # } Catch {
+  #     Write-Error "An error occurred during Invoke-WebRequest: $($_.Exception.Message)"
+  #     Write-Host "Check if the XTTS server is running at $xttsServerUri and responding."
+  # }
+  #
+  # This approach is confirmed working (May 2025).
+
+  # [XTTSv2 Speaker List - May 2025]
+  #
+  # To list available speakers for your current XTTSv2 model, run:
+  #   docker-compose -f "docker-compose.ai.yml" exec xtts tts \
+  #     --model_path /model/my_xtts_v2_local \
+  #     --config_path /model/my_xtts_v2_local/config.json \
+  #     --speakers_file_path /model/my_xtts_v2_local/speakers_xtts.pth \
+  #     --list_speaker_idxs
+  #
+  # Example output (your model):
+  #   > Available speaker ids: dict_keys([
+  #       'Claribel Dervla', 'Daisy Studious', 'Gracie Wise', 'Tammie Ema',
+  #       'Alison Dietlinde', 'Ana Florence', 'Annmarie Nele', 'Asya Anara',
+  #       'Brenda Stern', 'Gitta Nikolina', 'Henriette Usha', 'Sofia Hellen',
+  #       'Tammy Grit', 'Tanja Adelina', 'Vjollca Johnnie', 'Andrew Chipper',
+  #       'Badr Odhiambo', 'Dionisio Schuyler', 'Royston Min', 'Viktor Eka',
+  #       'Abrahan Mack', 'Adde Michal', 'Baldur Sanjin', 'Craig Gutsy',
+  #       'Damien Black', 'Gilberto Mathias', 'Ilkin Urbano', 'Kazuhiko Atallah',
+  #       'Ludvig Milivoj', 'Suad Qasim', 'Torcull Diarmuid', 'Viktor Menelaos',
+  #       'Zacharie Aimilios', 'Nova Hogarth', 'Maja Ruoho', 'Uta Obando',
+  #       'Lidiya Szekeres', 'Chandra MacFarland', 'Szofi Granger',
+  #       'Camilla Holmström', 'Lilya Stainthorpe', 'Zofija Kendrick',
+  #       'Narelle Moon', 'Barbora MacLean', 'Alexandra Hisakawa',
+  #       'Alma María', 'Rosemary Okafor', 'Ige Behringer', 'Filip Traverse',
+  #       'Damjan Chapman', 'Wulf Carlevaro', 'Aaron Dreschner', 'Kumar Dahl',
+  #       'Eugenio Mataracı', 'Ferran Simen', 'Xavier Hayasaka', 'Luis Moray',
+  #       'Marcos Rudaski'])
+  #
+  # Only these speaker names are valid for TTS requests with this model.
+  #
+  # If you use a speaker_id not in this list, the server will return an error (HTTP 500).
+  #
+  # Update this note if you change models or add new speakers.
+
+  # OVOS (OpenVoiceOS) - Voice Assistant Service
+  #
+  # This service runs the OVOS core, configured to use your existing Whisper (Wyoming STT) and XTTS (Coqui TTS) services.
+  #
+  # Configuration and data are persisted in ./ovos_config/config and ./ovos_config/data.
+  #
+  # Audio input/output in Docker is complex on Windows; for now, focus on core/skill testing and API integration.
+  #
+  # To start OVOS:
+  #   docker-compose -f "docker-compose.ai.yml" up -d ovos
+  #
+  # To view logs:
+  #   docker-compose -f "docker-compose.ai.yml" logs -f ovos
+  #
+  # The OVOS GUI websocket will be available on port 8181.
+  #
+  # mycroft.conf is mapped from ./ovos_config/config/mycroft.conf
+  #
+  # For more info, see https://github.com/OpenVoiceOS/ovos-docker
+
+  ovos_messagebus:
+    image: smartgic/ovos-messagebus:latest
+    container_name: ovos_messagebus
+    hostname: ovos_messagebus
+    restart: unless-stopped
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft:ro
+    # Use port 8181 directly without mapping to a different port
+    ports:
+      - "8181:8181"
+    environment:
+      - TZ=Australia/Brisbane
+    networks:
+      - ovos_network
+    healthcheck:
+      test: ["CMD", "curl", "--header", "Connection: Upgrade", "--header", "Upgrade: Websocket", "http://127.0.0.1:8181/core"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    
+  ovos:
+    build:
+      context: ./ovos-docker
+      dockerfile: Dockerfile.custom-ovos-core
+    image: custom-ovos-core:latest
+    container_name: ovos
+    restart: unless-stopped
+    depends_on:
+      ovos_messagebus:
+        condition: service_healthy
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft
+      - ./ovos_config/data:/home/ovos/.local/share/mycroft
+      - ./test_tcp.py:/test_tcp.py
+      - ./test_ws_minimal.py:/test_ws_minimal.py
+    ports:
+      - "8183:8181"
+    environment:
+      - TZ=Australia/Brisbane
+      - MESSAGEBUS_HOST=ovos_messagebus
+      - MESSAGEBUS_PORT=8181
+      - MYCROFT_CONF_PATH=/home/ovos/.config/mycroft/mycroft.conf
+    networks:
+      - ovos_network
+    # If all services are in this compose file, OVOS can resolve 'whisper' and 'xtts' by container name.
+    # For advanced audio passthrough, see OVOS docs (Linux only).
+
+# Add more AI/video services as needed
+
+# Create a dedicated network for OVOS services
+networks:
+  ovos_network:
+    name: ovos_network
+
+# Additional Documentation for Home Automation Stack
+#
+# General Docker Commands:
+#
+# Start all services:
+# docker-compose -f docker-compose.ai.yml up -d
+#
+# Stop all services:
+# docker-compose -f docker-compose.ai.yml down
+#
+# Restart a specific service:
+# docker-compose -f docker-compose.ai.yml restart <service_name>
+#
+# XTTS (Text-to-Speech) Important Notes:
+#
+# - Model Directory Structure: Models are persisted by mapping a host directory
+#   (./xtts/models) to the container's default model cache path
+#   (/root/.local/share/tts). This prevents re-downloads on restart.
+#
+# - Voice Cloning: XTTSv2 supports voice cloning from short audio samples (6+ seconds).
+#   Store reference voice samples in ./xtts/speakers/ directory for organization.
+#
+# - GPU Acceleration: XTTSv2 is computationally intensive and strongly benefits from GPU.
+#   Without GPU acceleration, speech generation will be much slower.
+#
+# - First Run: On first startup, XTTSv2 will download a large model (~7GB).
+#   This may take significant time depending on your internet connection.
+#
+# - API Usage: To use the XTTS API for voice cloning, send a POST request to:
+#   http://localhost:5002/api/tts with JSON body containing:
+#   {
+#     "text": "Your text to synthesize",
+#     "speaker_wav": "base64_encoded_audio_sample",
+#     "language": "en" (or other supported language code)
+#   }
+#
+# - Supported Languages: XTTSv2 supports 17 languages including English (en),
+#   Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt),
+#   Polish (pl), Turkish (tr), Russian (ru), Dutch (nl), Czech (cs), Arabic (ar),
+#   Chinese (zh-cn), Japanese (ja), Korean (ko), Hungarian (hu), and Hindi (hi).
+#
+# - Audio Format: For best results with voice cloning, use WAV files with:
+#   * 24kHz sample rate (preferred for XTTSv2, which will resample other rates)
+#   * Minimal background noise
+#   * At least 6 seconds of clear speech
+#
+# Resource Management:
+#
+# - Multiple AI services running simultaneously (especially Ollama, TGI,
+#   Stable Diffusion, and XTTS) can be extremely resource-intensive.
+# - Monitor system resources (RAM, VRAM, CPU) regularly using tools like:
+#   * docker stats (for container resource usage)
+#   * nvidia-smi (for GPU usage if using NVIDIA GPUs)
+# - Consider adjusting resource limits for containers if necessary.
+#
+# Networking Overview:
+#
+# - All services run on a Docker bridge network (likely homeautomationstack_default)
+# - Main service access points:
+#   * Frigate UI: http://<host_ip>:5000
+#   * Stable Diffusion WebUI: http://<host_ip>:7860
+#   * Ollama API: http://<host_ip>:11434
+#   * Whisper API: http://<host_ip>:10300
+#   * Qdrant API: http://<host_ip>:6333
+#   * TGI API: http://<host_ip>:8080
+#   * XTTS API: http://<host_ip>:5002
+#   * OVOS GUI WebSocket: http://<host_ip>:8181
+#
+# GPU Allocation:
+#
+# - Ollama and XTTS are configured to use GPU by default
+# - For stable-diffusion-webui, uncomment the GPU section for much better performance
+# - For TGI (text-generation-inference), consider enabling GPU for practical use
+#   with larger models
+#
+# Text Generation Inference (TGI) Configuration:
+#
+# - The TGI service doesn't specify a model by default
+# - To load a specific model, add environment variables like:
+#   environment:
+#     - MODEL_ID=mistralai/Mistral-7B-Instruct-v0.1
+#
+# Initial Model Downloads:
+#
+# - Several services will download large models on first run:
+#   * Ollama: Models range from 1GB to 65GB+ depending on selection
+#   * TGI: Large LLMs typically 2GB-30GB depending on model
+#   * XTTS: ~7GB for the full XTTSv2 model and dependencies
+#   * Stable Diffusion: Base models ~2-7GB each
+# - Ensure sufficient disk space and a stable internet connection
+# - Initial downloads can take anywhere from minutes to hours
+#
+# Security Considerations:
+#
+# - Change default passwords (like FRIGATE_RTSP_PASSWORD) immediately
+# - If exposing services outside your local network:
+#   * Use strong authentication
+#   * Consider using HTTPS (via reverse proxy)
+#   * Prefer VPN access over direct port forwarding
+#   * Regularly update container images for security patches
+#
+# Updating Services:
+#
+# - Pull latest images: docker-compose -f docker-compose.ai.yml pull
+# - Restart with new images: docker-compose -f docker-compose.ai.yml up -d
+# - Check container logs after updates: docker logs <container_name>
+#
+# PUID/PGID Explanation:
+#
+# - Used for stable-diffusion-webui and potentially other services
+# - Sets internal user/group ID for container processes
+# - Ensures correct file ownership on mounted volumes
+# - Find your host user's IDs with: id -u (PUID) and id -g (PGID)
+#
+# Data Volume Management:
+#
+# - Model and media data volumes can grow very large over time
+# - Check Docker disk usage with: docker system df
+# - Monitor specific volume directories: du -sh ./*/
+# - Consider periodic cleanup of unused models and media
+#
+# Home Automation Stack Overall Structure:
+#
+# The complete stack is organized across three compose files:
+# - docker-compose.ai.yml: AI and ML services (this file)
+# - docker-compose.home.yml: Core home automation services
+# - docker-compose.utils.yml: Infrastructure and utility services
+#
+# Utility Services (from docker-compose.utils.yml):
+#
+# - Portainer (container:portainer):
+#   Web-based Docker management UI available at http://<host_ip>:9000
+#
+# - Watchtower (container:watchtower):
+#   Automatic container updates when new images are available
+#
+# - Nginx Proxy Manager (container:nginx-proxy-manager):
+#   Reverse proxy and SSL management, admin UI at http://<host_ip>:81
+#
+# - Tailscale (container:tailscale):
+#   Secure remote access to your network using Tailscale VPN
+#
+# - Cloudflared (container:cloudflared):
+#   Cloudflare tunnel for secure external access without port forwarding
+#
+# See docker-compose.utils.yml for detailed configuration of these services.
+#
+# Backup and Restore:
+#
+# To back up critical data, copy the following directories:
+# - ./frigate/config and ./frigate/media
+# - ./ollama (entire directory, not just models)
+# - ./qdrant/data
+# - ./stable-diffusion/models and ./stable-diffusion/outputs
+# - ./whisper/data
+# - ./xtts/models and ./xtts/speakers
+# - ./ovos_config/config and ./ovos_config/data
+#
+# To restore, replace the directories with the backed-up versions.
+#
+# Environment Variables:
+#
+# - FRIGATE_RTSP_PASSWORD: Password for RTSP streams in Frigate.
+# - PUID and PGID: User and group IDs for permissions in Stable Diffusion.
+# - TZ: Timezone for services (e.g., Australia/Brisbane).
+#
+# Service-Specific Notes:
+#
+# Frigate:
+# - Configuration file: ./frigate/config/config.yaml
+# - Media storage: ./frigate/media/
+#
+# Stable Diffusion:
+# - GPU vs. CPU: Use CLI_ARGS=--use-cpu all --no-half for CPU-only mode.
+#
+# Ollama:
+# - Run a model: sudo docker exec -it ollama ollama run <model_name>
+# - List models: sudo docker exec -it ollama ollama list
+#
+# OVOS:
+# - Configuration file: ./ovos_config/config/mycroft.conf
+# - Data storage: ./ovos_config/data/
+#
+# Note: Home Assistant is defined in a separate compose file (docker-compose.home.yml)
+#
+# Troubleshooting Tips:
+#
+# - Check container logs:
+#   docker logs <container_name>
+#
+# - Verify container status:
+#   docker ps
+#
+# - Restart Docker service if containers fail to start:
+#   sudo systemctl restart docker
+#
+# - Ensure sufficient disk space for large models and media files.
+
+#
+# TROUBLESHOOTING LOG - OVOS (OpenVoiceOS) Setup (as of May 11-12, 2025)
+#
+# Goal: Get OpenVoiceOS (ovos-core & ovos-messagebus) running reliably.
+#
+# Initial Issues & Resolutions:
+# 1. Image Not Found:
+#    - Problem: `openvoiceos/ovos-core-dev:latest` image pull failed ("repository does not exist or may require 'docker login'").
+#    - Fix: Changed image for `ovos` service to `smartgic/ovos-core:latest`.
+#
+# 2. Timezone Configuration TypeError:
+#    - Problem: `ovos` container was in a restart loop due to `TypeError: string indices must be integers, not 'str'` in `ovos_config/locale.py` when trying to get `Configuration()["location"]["timezone"]["code"]`.
+#    - Fix: Added `TZ=Australia/Brisbane` to the `environment` section of the `ovos` service in `docker-compose.ai.yml`. This resolved the TypeError.
+#
+# 3. Host Port Conflict & Initial Message Bus Connection Issues:
+#    - Problem: Suspected conflict with both `ovos` (for GUI websocket) and `ovos_messagebus` trying to use host port 8181. `ovos-core` logs showed "Connection Refused. Is Messagebus Service running?".
+#    - Investigation (Network Mode):
+#      - `docker inspect ovos` initially showed `NetworkMode: host` (reason for this state vs. compose file was unclear but was observed).
+#      - Confirmed `docker-compose.ai.yml` was later updated to ensure both `ovos` and `ovos_messagebus` use bridge networking via a custom network `ovos_network`.
+#    - Fix (Port Mapping): Updated `docker-compose.ai.yml` so:
+#      - `ovos_messagebus` maps its internal port 8181 to host port `8182` (e.g., `ports: - "8182:8181"`).
+#      - `ovos` (core) maps its internal port 8181 (for GUI) to host port `8181` (e.g., `ports: - "8181:8181"`).
+#      - This resolved direct host port conflicts.
+#    - Fix (`mycroft.conf` for client): Updated `mycroft.conf` to ensure `message_bus_client.host` was `ovos_messagebus` (service name) and `port` was `8181`.
+#    - Fix (Environment Variables for client): Added `MESSAGEBUS_HOST=ovos_messagebus` and `MESSAGEBUS_PORT=8181` to `ovos` service environment in `docker-compose.ai.yml` to ensure client configuration.
+#    - Fix (Service Readiness): Added a `healthcheck` to `ovos_messagebus` and `depends_on: ovos_messagebus: condition: service_healthy` to `ovos` in `docker-compose.ai.yml` to prevent `ovos-core` from starting before `ovos_messagebus` is fully ready.
+#
+# 4. Persistent "Connection Refused" from `ovos_bus_client` despite `curl` Success:
+#    - Status: `ovos_messagebus` reported healthy. `ovos-core` started after messagebus was healthy.
+#    - `curl` Test: `docker exec ovos curl -v http://ovos_messagebus:8181/core` (and using direct IP `172.20.0.2`) **succeeded**. It resolved the hostname, established a TCP connection, and `ovos_messagebus` (TornadoServer) responded with HTTP 400 (correctly wanting a WebSocket upgrade). `ovos_messagebus` logs confirmed receiving these HTTP requests from `ovos-core`'s IP.
+#    - `ovos-core` Logs: Still showed `WARNING - Connection Refused. Is Messagebus Service running?` from `ovos_bus_client.client.client`, even when `mycroft.conf` used the direct IP and `log_level` was `DEBUG`. The DEBUG logs for `ovos-core` did not provide a more specific Python exception trace before this warning.
+#
+# 5. Python Script Execution Debugging (via `docker exec`):
+#    - Problem: Initial attempts to run Python test scripts (`test_ws.py`, `test_ws_simple.py`) in `ovos` container via `docker exec` produced no visible output, though `$LASTEXITCODE` was 0 for simple scripts.
+#    - Fix (Output Capturing): Used `sh -c "python3 script.py > /output.txt 2>&1"` inside `docker exec`, then `cat /output.txt`.
+#    - `hello.py` (simple print statement): Successfully executed and produced output using this method.
+#    - `test_import.py` (testing `import websocket, ssl, socket, sys, traceback`): Successfully executed and all imports were confirmed working (websocket-client v1.8.0, Python 3.13).
+#    - `test_ws_final.py` (and similar scripts that included `websocket.enableTrace(True)` and/or `websocket.create_connection(...)`): Resulted in an **empty output file** (`/tmp/final_ws_output.txt`). No `print` statements from the script (even those at the very beginning or in `except` blocks with tracebacks) were captured.
+#
+# 6. Current Hypothesis for "Connection Refused" & Silent Python Script Failure:
+#    - The `ovos_bus_client` in `ovos-core` (and standalone Python scripts attempting WebSocket connections using `websocket-client` library) seems to encounter a low-level issue when `websocket.enableTrace(True)` or `websocket.create_connection()` is called.
+#    - This results in what appears to be a silent crash or abrupt exit of the Python process/script without producing standard output/error that can be redirected to a file, even when basic Python execution and imports work fine.
+#    - This suggests a possible segfault, OOM kill (though less likely without other signs), a missing runtime dependency for a C extension used by `websocket-client`, or a critical bug in `websocket-client==1.8.0` or its interaction with Python 3.13 in this specific Docker container environment when network operations are initiated.
+#
+# 7. Next Suggested Diagnostic Steps (Building on User's Log):
+#    - (Done) Verify container IPs with `docker network inspect ovos_network`. Current: `ovos_messagebus` is `172.20.0.2`, `ovos` is `172.20.0.3`.
+#    - **Crucial Next Test:** Execute a simple Python TCP socket connection test (`test_tcp.py`) from `ovos` to `ovos_messagebus` (IP `172.20.0.2`, port `8181`) to completely bypass the `websocket-client` library for the initial TCP handshake.
+#      - If `test_tcp.py` succeeds: The problem is almost certainly within the `websocket-client` library's initialization or connection establishment code. Next steps would be to try a minimal websocket connection *without* `enableTrace(True)` first, then consider downgrading/upgrading `websocket-client`.
+#      - If `test_tcp.py` also fails (silently or with "Connection Refused"): This would indicate a more fundamental issue with Python's `socket` module making outbound TCP connections from within this container, which would be extremely puzzling given `curl` works.
+#    - Check for OOM kills: `docker inspect ovos` for `State.OOMKilled` after a script attempt.
+#    - Review `docker logs ovos_messagebus` again for any clues during the Python client's connection attempts (though it previously only showed the `curl` attempts).
+#
+# [TCP Socket Test Result - May 12, 2025]
+#
+# - Ran test_tcp.py in ovos container:
+#     --- TCP Socket Test Started ---
+#     SUCCESS: Connected to ovos_messagebus:8181
+#     --- TCP Socket Test Finished ---
+# - Conclusion: Python in ovos container can connect to ovos_messagebus:8181 via TCP. Docker networking is working.
+# - Next: Test a minimal WebSocket client (without enableTrace) to isolate if the issue is with websocket-client or OVOS usage.
+# - If minimal WebSocket test fails, try downgrading/upgrading websocket-client in the container.
+#
+# Document all findings and update this log after each step.
+#
+# [File Not Found - test_tcp.py]
+#
+# - Observed: 'ls: cannot access '/test_tcp.py': No such file or directory' in ovos container.
+# - Cause: test_tcp.py was not mounted into the container.
+# - Fix: Added a volume mapping for test_tcp.py in the ovos service in docker-compose.ai.yml:
+#     - ./test_tcp.py:/test_tcp.py
+# - After updating the compose file, restart the ovos container:
+#     docker-compose -f "docker-compose.ai.yml" up -d ovos
+# - Then verify the file is present:
+#     docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /test_tcp.py
+# - Proceed with the TCP test as before.
+#
+# Next troubleshooting steps:
+# 1. Check if /test_tcp.py exists and is executable in the ovos container:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /test_tcp.py
+# 2. Check if /tcp_output.txt exists and has content:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos ls -l /tcp_output.txt
+#    docker-compose -f "docker-compose.ai.yml" exec ovos cat /tcp_output.txt
+# 3. Run the TCP test interactively to see any errors:
+#    docker-compose -f "docker-compose.ai.yml" exec ovos python3 /test_tcp.py
+#
+# Document all findings and update this log after each step.
+#
+# 8. Current `docker-compose.ai.yml` for OVOS services (relevant parts):
+#    - `ovos_messagebus`: image `smartgic/ovos-messagebus:latest`, hostname `ovos_messagebus`, `TZ`, healthcheck, on `ovos_network`, port `8181:8181` (or `8182:8181` previously, user may still be adjusting this).
+#    - `ovos`: image `smartgic/ovos-core:0.1.0`, `depends_on: ovos_messagebus: condition: service_healthy`, `TZ`, `MESSAGEBUS_HOST=ovos_messagebus`, `MESSAGEBUS_PORT=8181`, on `ovos_network`, GUI port `8183:8181` (or `8181:8181` previously).
+#
+# 9. All diagnostic Python scripts (`hello.py`, `test_import.py`, `test_ws_final.py`, `test_tcp.py`) and PowerShell commands are being kept by the user in their workspace for future reference.
+#
+
+# [WebSocket Diagnostic Breakthrough - May 12, 2025]
+#
+# - Ran test_ws_minimal.py in ovos container:
+#     DEBUG: Importing websocket library...
+#     DEBUG: websocket library imported. Version: 1.8.0
+#     DEBUG: Attempting websocket.create_connection(url='ws://172.20.0.2:8181/core', timeout=20)...
+#     --- Minimal WebSocket Test: SUCCESS! WebSocket connection established. ---
+#     DEBUG: Websocket object: <websocket._core.WebSocket object at ...>
+#     DEBUG: Websocket connected: True
+#     DEBUG: WebSocket connection closed.
+#     --- Minimal WebSocket Test: Finished Successfully ---
+# - Conclusion: Python 3.13 and websocket-client==1.8.0 can connect to ovos_messagebus:8181 from ovos container. No fundamental network or library issue.
+# - Hypothesis: The silent failure of test_ws_final.py and persistent ovos_bus_client 'Connection Refused' errors may be caused by websocket.enableTrace(True) or similar debug tracing, which could crash Python in this environment.
+#
+# [Next Diagnostic Step - May 12, 2025]
+#
+# - Hypothesis: ovos_bus_client (in ovos-core) may enable websocket-client tracing when log_level is set to DEBUG in mycroft.conf, causing silent failure.
+# - Action: Set log_level to INFO in ovos_config/config/mycroft.conf and set message_bus_client.host to direct IP (172.20.0.2) to avoid DNS ambiguity.
+#   Example relevant config:
+#   {
+#     "message_bus_client": {
+#       "host": "172.20.0.2",
+#       "port": 8181,
+#       "route": "/core",
+#       "ssl": false
+#     },
+#     ...
+#     "log_level": "INFO"
+#   }
+# - Save mycroft.conf, then force-recreate ovos container:
+#     docker-compose -f "docker-compose.ai.yml" up -d --force-recreate ovos
+# - Wait for ovos to start, then check logs:
+#     docker-compose -f "docker-compose.ai.yml" logs ovos --tail 200
+# - If ovos-core connects and loads skills, the hypothesis is confirmed: websocket-client tracing (triggered by DEBUG log level) is the root cause of the silent failure.
+# - If not, further investigation is needed into ovos_bus_client and websocket-client usage.
+#
+# - Document all findings and update this log after each step.
+#
+# [Summary:]
+# - Minimal WebSocket test proves Python and websocket-client work.
+# - Suspect websocket.enableTrace(True) or similar debug tracing causes silent crash in this Docker/Python environment.
+# - Test ovos-core with log_level: INFO to avoid triggering tracing.
+# - If successful, document as root cause and workaround.
+# - If not, further investigation required.
+#
+# --- End WebSocket Diagnostic Breakthrough Log ---
+
+# [OVOS Messagebus Connection Test - May 12, 2025]
+#
+# - Updated ovos_config/config/mycroft.conf:
+#     "message_bus_client": {
+#         "host": "172.20.0.2",
+#         "port": 8181,
+#         "route": "/core",
+#         "ssl": false
+#     },
+#     ...
+#     "log_level": "INFO"
+# - Force-recreated ovos container to apply config.
+# - RESULT: ovos-core still fails to connect to ovos_messagebus. Logs show:
+#     WARNING - Message Bus Client will reconnect in X seconds (ovos_bus_client.client.client:on_error:128)
+# - This occurs even with log_level: INFO and direct IP for messagebus.
+# - Minimal WebSocket test script still works, confirming Python and websocket-client are functional.
+#
+# Conclusion: The root cause is not simply websocket-client tracing triggered by log_level: DEBUG. The issue may be in ovos_bus_client usage, environment, or another config detail. Further investigation required (try service name, check ovos_messagebus logs, try websocket-client version changes, etc).
+#
+# Document all further findings here before pushing to GitHub.
+
+# [WebSocket Client Downgrade Test - May 12, 2025]
+#
+# - Action: Downgraded websocket-client in ovos container from 1.8.0 to 1.7.0:
+#     docker-compose -f "docker-compose.ai.yml" exec ovos pip uninstall -y websocket-client
+#     docker-compose -f "docker-compose.ai.yml" exec ovos pip install websocket-client==1.7.0
+#     docker-compose -f "docker-compose.ai.yml" restart ovos
+# - Result: ovos-core still fails to connect to ovos_messagebus. Logs show:
+#     WARNING - Connection Refused. Is Messagebus Service running? (ovos_bus_client.client.client:on_error)
+# - Conclusion: Downgrading websocket-client did not resolve the issue. The problem is not due to websocket-client 1.8.0 vs 1.7.0.
+# - Next steps: Remove "route" from config and environment, use service name for host, or try running ovos-core outside Docker.
+#
+# Document all further findings here before pushing to GitHub.
+
+# [Image Not Found - openvoiceos/ovos-core:latest]
+#
+# - Problem: Attempted to pull image 'openvoiceos/ovos-core:latest' for ovos service.
+# - Result: 'pull access denied for openvoiceos/ovos-core, repository does not exist or may require 'docker login''
+# - Action: Documented in troubleshooting log. Revert to a known working ovos-core image (e.g., smartgic/ovos-core:latest or smartgic/ovos-core:0.1.0) for further testing.
+#
+# Document all further findings here before pushing to GitHub.
+
+# [OVOS Image Pull Failure - May 12, 2025]
+#
+# - Attempted to pull image: openvoiceos/ovos-core:latest for ovos service.
+# - Result: Error - pull access denied for openvoiceos/ovos-core, repository does not exist or may require 'docker login'.
+# - Action: Noted failure in troubleshooting log. Will revert to a known working image (e.g., smartgic/ovos-core:latest or smartgic/ovos-core:0.1.0) for further testing.
+#
+# Document all further findings here before pushing to GitHub.
+
+# [OVOS Diagnostic Results - May 12, 2025]
+#
+# - Confirmed ovos container uses correct config and environment:
+#     - MYCROFT_CONF_PATH is set and points to /home/ovos/.config/mycroft/mycroft.conf
+#     - Config file is present, correct, and permissions are valid.
+# - Both minimal TCP and WebSocket tests from ovos container to ovos_messagebus:8181 succeed:
+#     - test_tcp.py: SUCCESS (TCP connection established)
+#     - test_ws_minimal.py: SUCCESS (WebSocket connection established, websocket-client 1.8.0, Python 3.13)
+# - ovos-core logs still show persistent 'Connection Refused' errors from ovos_bus_client, even after reverting to smartgic/ovos-core:latest.
+# - ovos_bus_client version is 1.3.4, websocket-client is 1.8.0, both correctly installed and imported.
+# - Manually instantiating and running MessageBusClient in the container does not produce output or errors (may hang or not connect as expected).
+# - Attempting to print ovos_bus_client.__version__ fails (no attribute), but pip shows 1.3.4 is installed.
+# - All findings confirm: Python, Docker networking, and websocket-client are functional; the persistent connection issue is specific to ovos_bus_client/ovos-core usage or environment.
+#
+# Next steps:
+# - Try smartgic/ovos-core:0.1.0 image to rule out regression in latest image.
+# - If still failing, run ovos-core outside Docker to isolate Docker-specific issues.
+# - If all else fails, prepare a minimal reproduction and open an upstream issue with OVOS.
+#
+# Document all further findings here before pushing to GitHub.
+
+# --- [Custom OVOS Core Image Build - May 12, 2025] ---
+#
+# Built a custom ovos-core image using Python 3.11-slim, pip-installed ovos-core and ovos-bus-client, and tini as init for orphan process reaping.
+# Dockerfile: ovos-docker/Dockerfile.custom-ovos-core
+#
+# Key features:
+# - Uses tini as PID 1 to ensure orphan/zombie process reaping.
+# - Installs ovos-core and ovos-bus-client from PyPI.
+# - User: ovos, working dir: /home/ovos.
+# - ENTRYPOINT: tini --
+# - CMD: ovos-start
+#
+# Next steps:
+# - Update ovos service in this compose file to build from ovos-docker/Dockerfile.custom-ovos-core.
+# - Test ovos-core connectivity to ovos_messagebus and document results here.
+#
+# If successful, this resolves both the persistent connection issue and ensures proper process management.
+#
+# --- End Custom OVOS Core Image Build Log ---
+
+# Document all further findings here before pushing to GitHub.
+

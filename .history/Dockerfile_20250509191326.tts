@@ -1,0 +1,21 @@
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    && apt-get clean
+
+# Create a virtual environment
+RUN python3.10 -m venv /app/venv
+
+# Activate the virtual environment and install TTS
+RUN /app/venv/bin/pip install --upgrade pip && \
+    /app/venv/bin/pip install TTS==0.22.0
+
+# Set the virtual environment as the default Python
+ENV PATH="/app/venv/bin:$PATH"
+
+# Default command
+CMD ["python", "-m", "TTS"]
