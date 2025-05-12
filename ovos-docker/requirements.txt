@@ -1,0 +1,29 @@
+# Pin websocket-client to an older version that works with ovos
+websocket-client==0.57.0
+
+# Core OVOS packages
+ovos-core
+ovos-bus-client
+ovos-utils
+ovos-config
+ovos-workshop
+
+# Intent parsers
+ovos-padatious
+
+# Plugin management
+ovos-plugin-manager
+
+# Other dependencies that might be needed
+pexpect
+pyee
+
+# --- Add these plugins based on your mycroft.conf ---
+# Wake Word plugin
+ovos-ww-plugin-vosk
+
+# TTS plugin
+ovos-tts-plugin-coqui
+
+# Audio backend plugin
+ovos-audio-plugin-simple

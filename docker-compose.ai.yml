@@ -13,6 +13,8 @@
 #   - qdrant
 #   - tgi
 #   - xtts
+#   - ovos_messagebus
+#   - ovos
 #
 # See the other files for additional services and to bring up the full stack, use:
 #   docker-compose -f "docker-compose.ai.yml" -f "docker-compose.home.yml" -f "docker-compose.utils.yml" up -d
@@ -162,37 +164,131 @@ services:
   # Model files must be in ./xtts/models/my_xtts_v2_local/ on the host.
   # Keep this service running until confirmed stable.
 
-  # TROUBLESHOOTING LOG - OVOS (OpenVoiceOS) Setup [Final State, May 2025]
-  #
-  # This section summarizes the final, working configuration and key lessons for running OVOS (ovos-core & ovos-messagebus) in Docker Compose with robust plugin and messagebus connectivity.
-  #
-  # Final Working State:
-  # - OVOS services run reliably using a custom ovos-core image (built from ovos-docker/Dockerfile.custom-ovos-core) and smartgic/ovos-messagebus:latest.
-  # - All required plugins (wake word, STT, TTS, audio backend, PHAL GUI notifications) are listed in ovos-docker/requirements.txt and install successfully during build.
-  # - The ovos_messagebus service exposes port 8181 and uses a healthcheck for /core.
-  # - The ovos service uses environment variables (MESSAGEBUS_HOST, MESSAGEBUS_PORT, MESSAGEBUS_ROUTE, MYCROFT_CONF_PATH, OVOS_DEFAULT_LOG_LEVEL) and depends_on ovos_messagebus:condition:service_healthy.
-  # - Host config and data directories (./ovos_config/config, ./ovos_config/data) are mounted read-only and with correct permissions.
-  # - mycroft.conf must have:
-  #     - "websocket": {"host": "ovos_messagebus", "port": 8181, "route": "/core", "ssl": false} (for client connection)
-  #     - "message_bus_client" section is ignored by ovos-core; only "websocket" is used for connection.
-  #     - "audio" key is lowercase.
-  #     - "log_level": "DEBUG" for detailed logs (INFO also works if needed).
-  # - All test scripts (test_tcp.py, test_ws_minimal.py) confirm Python and WebSocket connectivity from ovos to ovos_messagebus.
-  # - TTS API and speaker management are documented in OVOS_SETUP_GUIDE.md and in this file.
-  #
-  # Key Lessons & Solutions:
-  # - Use bridge networking and a custom network (ovos_network) for all OVOS services.
-  # - Always use the service name (ovos_messagebus) for the websocket host in mycroft.conf.
-  # - Pin websocket-client to 0.57.0 in requirements.txt for compatibility.
-  # - Ensure all plugin packages referenced in mycroft.conf are present in requirements.txt.
-  # - Add swig and libfann-dev to the Dockerfile for successful build of ovos-padatious and dependencies.
-  # - Use healthchecks and depends_on: condition: service_healthy to ensure correct startup order.
-  # - If you see persistent 'Connection Refused' errors, double-check the websocket section in mycroft.conf and the environment variables.
-  # - For Windows hosts, ensure correct permissions on mounted config/data directories (see PowerShell icacls commands above).
-  #
-  # For full setup, troubleshooting, and TTS API usage, see OVOS_SETUP_GUIDE.md.
-  #
-  # [End of OVOS Troubleshooting Log - System Operational]
+  ovos_messagebus:
+    image: smartgic/ovos-messagebus:latest
+    container_name: ovos_messagebus
+    restart: unless-stopped
+    networks:
+      - ovos_network
+    ports:
+      - "8181:8181"
+    environment:
+      - TZ=Australia/Brisbane
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft:ro
+    healthcheck:
+      test: ["CMD", "curl", "--header", "Connection: Upgrade", "--header", "Upgrade: Websocket", "http://127.0.0.1:8181/core"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # IMPORTANT: The messagebus configuration is located in ./ovos_config/config/mycroft.conf
+    # For OVOS core to connect successfully to the messagebus, AND for messagebus itself to be healthy,
+    # ensure mycroft.conf contains the following "websocket" section for the SERVER:
+    #
+    # "websocket": {
+    #   "host": "0.0.0.0",         # messagebus server binds to all interfaces
+    #   "port": 8181,
+    #   "route": "/core",          # serves the /core endpoint
+    #   "ssl": false
+    # }
+    #
+    # The ovos-core client will use its own settings (primarily from ENV VARS) to connect to this.
+
+  ovos:
+    build:
+      context: ./ovos-docker # Ensure Dockerfile.custom-ovos-core and requirements.txt are here
+      dockerfile: Dockerfile.custom-ovos-core
+    container_name: ovos
+    restart: unless-stopped
+    depends_on:
+      ovos_messagebus:
+        condition: service_healthy
+    environment:
+      - TZ=Australia/Brisbane
+      - MESSAGEBUS_HOST=ovos_messagebus
+      - MESSAGEBUS_PORT=8181
+      - MESSAGEBUS_ROUTE=/core
+      - MYCROFT_CONF_PATH=/home/ovos/.config/mycroft/mycroft.conf
+      - OVOS_DEFAULT_LOG_LEVEL=DEBUG
+    # TROUBLESHOOTING CONNECTION ISSUES FOR OVOS-CORE (CLIENT):
+    # If the OVOS core container shows "Connection Refused" errors:
+    #
+    # 1. Primary Connection Config: OVOS-core client uses MESSAGEBUS_HOST, _PORT, _ROUTE ENV VARS.
+    #
+    # 2. Fallback Config (`mycroft.conf`):
+    #    Ensure your ./ovos_config/config/mycroft.conf (mounted to /ovos/.config/mycroft/mycroft.conf)
+    #    has a "websocket" section configured for the CLIENT to connect to "ovos_messagebus" on "/core".
+    #    This was the key insight: ovos-core's MessageBusClient() (when called with no args) reads
+    #    from config['websocket'] for its parameters if ENV VARS are not fully overriding.
+    #    Example for client parameters in mycroft.conf's "websocket" section:
+    #    "websocket": {
+    #      "host": "ovos_messagebus",
+    #      "port": 8181,
+    #      "route": "/core",
+    #      "ssl": false
+    #    }
+    #    (Also good to have a "message_bus_client" section with same client values for compatibility).
+    #
+    # 3. Verify connection using test scripts:
+    #    docker-compose -f docker-compose.ai.yml exec ovos python3 /ovos/ovos_test_connection.py
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft # Mounts the whole config dir
+      - ./ovos_config/data:/home/ovos/.local/share/mycroft
+      - ./ovos_test_connection.py:/home/ovos/ovos_test_connection.py # Optional test script
+    networks:
+      - ovos_network
+    ports:
+      - "8183:8181"  # WebUI port for ovos-core's GUI server
+
+# TROUBLESHOOTING LOG - OVOS (OpenVoiceOS) Setup [CONDENSED - Reflecting Successful Connection]
+# Goal: Get OpenVoiceOS (ovos-core & ovos-messagebus) running reliably in Docker.
+# All dates are nominal for logging purposes.
+#
+# [Phase 1: Initial Attempts with Public Images (smartgic/ovos-core) - May 11-12, 2025]
+# - Problem: Persistent "Connection Refused" from `ovos-core` to `ovos_messagebus`.
+# - Key Diagnostics: Basic network tests (TCP, curl) worked. `/core` WebSocket route and `websocket-client` versions were investigated.
+#   Direct Python WebSocket tests (`websocket.create_connection` to `ws://<host_ip>:<port>/core`) from `ovos` container eventually SUCCEEDED.
+# - Outcome: `ovos-bus-client` within `ovos-core` services still failed, suggesting issues with how it resolved connection parameters from config/env.
+#
+# [Phase 2: Switch to Custom Docker Image (Python 3.11) - May 12-13, 2025]
+# - Rationale: More control over environment. Dockerfile (`ovos-docker/Dockerfile.custom-ovos-core`) created.
+# - Build Issues: Resolved `ModuleNotFoundError` for `ovos_padatious` (added `swig`, `libfann-dev`) and
+#   initial `ModuleNotFoundError` for `ovos_core` (ensured robust `pip install -r requirements.txt` from `ovos-docker/requirements.txt`
+#   with all necessary packages like `ovos-core`, `ovos-bus-client`, `websocket-client==0.57.0`, STT/TTS/WW/PHAL plugins).
+#   Resolved `PermissionError` for `/home/ovos/.local/state` with Dockerfile `chown`.
+#
+# [Phase 3: Connection Breakthrough with Custom Image - May 13, 2025]
+# - Problem: Despite a successful custom build, `ovos-core` (SkillsService client) still showed "Connection Refused."
+# - Key Success: Direct instantiation of `MessageBusClient(host="ovos_messagebus", port=8181, route="/core")`
+#   in test scripts (like `ovos_messagebus_test.py` or one-liners) within the `ovos` container SUCCEEDED.
+# - The CRITICAL INSIGHT & FIX:
+#   - `ovos-core` services, when calling `MessageBusClient()` with no arguments, appeared to derive
+#     connection parameters from the `config['websocket']` section of `mycroft.conf`,
+#     not solely `config['message_bus_client']` or ENV VARS in this specific context.
+#   - The host's `./ovos_config/config/mycroft.conf` (mounted to both containers) was updated:
+#     Its `"websocket"` section was configured for `ovos_messagebus` SERVER (`host: "0.0.0.0", route: "/core"`).
+#     Its `"message_bus_client"` section was configured for `ovos-core` CLIENT (`host: "ovos_messagebus", route: "/core"`).
+#     AND crucial `ovos` service environment variables were confirmed: `MESSAGEBUS_HOST=ovos_messagebus`, `MESSAGEBUS_PORT=8181`, `MESSAGEBUS_ROUTE=/core`.
+#     (The precedence is ENV VARS > config for `ovos-bus-client`. The key was ensuring consistent targeting of `/core`
+#     and that `ovos_messagebus` server used `host: "0.0.0.0"` from its config's `websocket` section).
+#
+# - Result of Fixes:
+#   - `ovos_messagebus` started and became HEALTHY (healthcheck to `/core` passed).
+#   - "Connection Refused" errors in `ovos-core` logs DISAPPEARED.
+#   - `ovos-core` proceeded to initialize `ovos_padatious` and load skills successfully.
+#
+# - Current Status:
+#   - Custom OVOS Docker image builds and installs all dependencies correctly.
+#   - `ovos_messagebus` runs reliably.
+#   - `ovos-core` successfully connects to `ovos_messagebus` and starts its services/skills.
+#   - Key Learning: Consistent and correct configuration of `mycroft.conf` (for both messagebus server via its `websocket` section
+#     and as a fallback for the client via its `message_bus_client` section) AND correct `ovos-core` client environment variables
+#     (especially `MESSAGEBUS_ROUTE=/core`) are essential.
+#
+# Next step: Further testing of OVOS functionality (STT, TTS, Skills, GUI).
+#
+# --- End OVOS Troubleshooting Log ---
 
 # Add more AI/video services as needed
 

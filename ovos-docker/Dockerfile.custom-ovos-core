@@ -1,0 +1,55 @@
+# Custom OVOS Core Dockerfile with Tini for orphan process reaping
+FROM python:3.11-slim
+
+# Install system dependencies and tini (add swig and libfann-dev for fann2 build)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tini build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev swig libfann-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set Tini as the entrypoint
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Create ovos user and set up directories
+RUN useradd -ms /bin/bash ovos \
+    && mkdir -p /home/ovos/.local/state /home/ovos/.local/share/mycroft /home/ovos/.config/mycroft \
+    && chown -R ovos:ovos /home/ovos \
+    && chmod -R 777 /home/ovos/.local
+WORKDIR /home/ovos
+
+# Copy requirements file from the build context to the container
+COPY requirements.txt /requirements.txt
+
+# Install as root to ensure global installation
+USER root
+
+# Install Python packages from requirements.txt
+# Using --no-cache-dir to avoid using pip's cache
+# Using --force-reinstall to ensure a clean install of packages
+# Using -vvv for maximum verbosity
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir --force-reinstall -vvv --pre -r /requirements.txt
+
+# Verify installations
+RUN pip list | grep ovos
+RUN python3 -c "import sys; print('Python path:'); [print(f'  {p}') for p in sys.path]"
+RUN python3 -c "import ovos_core; print('ovos_core can be imported successfully')" || echo "Failed to import ovos_core"
+RUN python3 -c "import ovos_bus_client; print('ovos_bus_client can be imported successfully')" || echo "Failed to import ovos_bus_client"
+RUN which python3
+
+# Ensure ovos user owns all relevant directories after pip install
+RUN chown -R ovos:ovos /home/ovos
+
+# Set more secure permissions: directories 755, files 644, but keep .local writable for ovos user
+RUN find /home/ovos -type d -exec chmod 755 {} + && \
+    find /home/ovos -type f -exec chmod 644 {} + && \
+    chmod -R 775 /home/ovos/.local
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    HOME=/home/ovos
+
+# Switch to ovos user
+USER ovos
+
+# Default command (can be overridden by compose)
+CMD ["python3", "-m", "ovos_core"]
