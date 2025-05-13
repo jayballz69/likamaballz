@@ -2,7 +2,7 @@
 
 ### How to Read This Guide
 This document uses RFC 2119 keywords (MUST, SHOULD, MUST NOT, MAY) to indicate rule priorities.¹  
-Any deviation from a MUST-level rule must follow **Section 28: Handling Exceptions and Deviations to These Rules**.  
+Any deviation from a MUST-level rule must follow Section X: Handling Exceptions and Deviations.  
 
 ## Table of Contents
 1. [Configuration Consistency](#1-configuration-consistency)
@@ -32,8 +32,7 @@ Any deviation from a MUST-level rule must follow **Section 28: Handling Exceptio
 25. [Visualizations & Diagrams](#visualizations--diagrams)
 26. [Periodic Review & Update Schedule](#periodic-review--update-schedule)
 27. [Designing for Offline Capability & Portability](#27-designing-for-offline-capability--portability)
-28. [Exceptions & Deviations (EXC-01)](#28-handling-exceptions-and-deviations-to-these-rules)
-29. [Conflict Resolution Matrix (CRM-01)](#29-conflict-resolution-matrix)
+28. [Exceptions & Deviations (EXC-01)](#x-handling-exceptions-and-deviations-to-these-rules)
 
 > **Rule:** This guide must be referenced in all relevant code, configuration, and documentation files, and in all code reviews. Add a comment or note: "See AI_CODING_BASELINE_RULES.md for required practices."
 
@@ -56,6 +55,16 @@ This document defines the baseline rules and best practices that all AI agents, 
 | Accessibility (WCAG compliance)    |   [ ]    |
 | Benchmark/performance checked      |   [ ]    |
 | Secrets managed securely           |   [ ]    |
+
+---
+
+## X. Handling Exceptions and Deviations to These Rules
+<!-- id: EXC-01, priority: MUST, tags: [compliance], last_reviewed: 2025-05-13 -->
+Any intentional deviation from these baseline rules must be a conscious, documented exception:
+1. **Identify:** Reference the baseline rule(s) being deviated from.
+2. **Justify:** Provide clear rationale for the deviation.
+3. **Document:** Record the exception, justification, risks, and alternative approach in the relevant `[ServiceName]_SETUP_GUIDE.md` or `[ServiceName]_TROUBLESHOOTING_GUIDE.md` with a link back to this guide.
+4. **Approve:** Obtain explicit approval from the primary maintainer before finalizing.
 
 ---
 
@@ -299,18 +308,6 @@ Any intentional deviation from these baseline rules must be a conscious, documen
 2. **Justify:** Provide clear rationale for the deviation.
 3. **Document:** Record the exception, justification, risks, and alternative approach in the relevant `[ServiceName]_SETUP_GUIDE.md` or `[ServiceName]_TROUBLESHOOTING_GUIDE.md` with a link back to this guide.
 4. **Approve:** Obtain explicit approval from the primary maintainer before finalizing.
-
----
-
-## 29. Conflict Resolution Matrix
-<!-- id: CRM-01, priority: SHOULD, tags: [conflict], last_reviewed: 2025-05-13 -->
-### CRM-01: Resolving Conflicts in Code, Configuration, or Documentation
-1. **Identify Conflict:** Clearly define the conflicting changes, configurations, or documentation sections; reference impacted rules.
-2. **Analyze Impact:** Assess risks, benefits, and trade-offs against project priorities (security, performance, maintainability).
-3. **Collaborate:** Engage stakeholders (AI and humans) via collaborative channels to gather input.
-4. **Decide:** Reach consensus or escalate to primary maintainer; document rationale in commit messages or guides.
-5. **Implement:** Apply resolution, test thoroughly, and update documentation/configuration.
-6. **Review:** Conduct post-resolution review to confirm effective conflict resolution and capture lessons learned.
 
 ---
 

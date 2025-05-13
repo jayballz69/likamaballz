@@ -2,7 +2,7 @@
 
 ### How to Read This Guide
 This document uses RFC 2119 keywords (MUST, SHOULD, MUST NOT, MAY) to indicate rule priorities.¹  
-Any deviation from a MUST-level rule must follow **Section 28: Handling Exceptions and Deviations to These Rules**.  
+Any deviation from a MUST-level rule must follow Section 28: Handling Exceptions and Deviations to These Rules.  
 
 ## Table of Contents
 1. [Configuration Consistency](#1-configuration-consistency)

@@ -1,8 +1,8 @@
 # AI_CODING_BASELINE_RULES
 
 ### How to Read This Guide
-This document uses RFC 2119 keywords (MUST, SHOULD, MUST NOT, MAY) to indicate rule priorities.¹  
-Any deviation from a MUST-level rule must follow **Section 28: Handling Exceptions and Deviations to These Rules**.  
+This document uses RFC 2119 keywords (MUST, SHOULD, MUST NOT, MAY) to indicate rule priorities.  
+Any deviation from a MUST-level rule must follow Section X: Handling Exceptions and Deviations.  
 
 ## Table of Contents
 1. [Configuration Consistency](#1-configuration-consistency)
@@ -32,8 +32,7 @@ Any deviation from a MUST-level rule must follow **Section 28: Handling Exceptio
 25. [Visualizations & Diagrams](#visualizations--diagrams)
 26. [Periodic Review & Update Schedule](#periodic-review--update-schedule)
 27. [Designing for Offline Capability & Portability](#27-designing-for-offline-capability--portability)
-28. [Exceptions & Deviations (EXC-01)](#28-handling-exceptions-and-deviations-to-these-rules)
-29. [Conflict Resolution Matrix (CRM-01)](#29-conflict-resolution-matrix)
+28. [Handling Exceptions and Deviations to These Rules](#x-handling-exceptions-and-deviations-to-these-rules)
 
 > **Rule:** This guide must be referenced in all relevant code, configuration, and documentation files, and in all code reviews. Add a comment or note: "See AI_CODING_BASELINE_RULES.md for required practices."
 
@@ -59,6 +58,16 @@ This document defines the baseline rules and best practices that all AI agents, 
 
 ---
 
+## X. Handling Exceptions and Deviations to These Rules
+<!-- id: EXC-01, priority: MUST, tags: [compliance], last_reviewed: 2025-05-13 -->
+Any intentional deviation from these baseline rules must be a conscious, documented exception:
+1. **Identify:** Reference the baseline rule(s) being deviated from.
+2. **Justify:** Provide clear rationale for the deviation.
+3. **Document:** Record the exception, justification, risks, and alternative approach in the relevant `[ServiceName]_SETUP_GUIDE.md` or `[ServiceName]_TROUBLESHOOTING_GUIDE.md` with a link back to this guide.
+4. **Approve:** Obtain explicit approval from the primary maintainer before finalizing.
+
+---
+
 ## 1. Configuration Consistency
 <!-- id: CFG-01, priority: MUST, tags: [config] -->
 - MUST: Always use the Docker Compose service name (e.g., `ovos_messagebus`) for all inter-container host references.
@@ -81,10 +90,10 @@ This document defines the baseline rules and best practices that all AI agents, 
 
 ## 4. Healthchecks and Dependencies
 <!-- id: HC-01, priority: SHOULD, tags: [docker, healthchecks] -->
-- SHOULD: Use `depends_on` with `condition: service_healthy` and robust healthcheck definitions. (see Conflict Resolution Matrix CRM-01)
+- SHOULD: Use `depends_on` with `condition: service_healthy` and robust healthcheck definitions.
 - SHOULD: Prefer the exec form (`["CMD", …]`) over shell form for reliability.
 - SHOULD: Tune `interval`, `timeout`, `retries`, and `start_period` to match service startup behavior.
-- MUST NOT: Use always-passing healthchecks (e.g., ending in `|| true`) for critical services unless a documented exception exists. (see CRM-01)
+- MUST NOT: Use always-passing healthchecks (e.g., ending in `|| true`) for critical services unless a documented exception exists.
 
 ## 5. Version Pinning
 <!-- id: PIN-01, priority: SHOULD, tags: [docker, versioning] -->
@@ -106,12 +115,12 @@ This document defines the baseline rules and best practices that all AI agents, 
 
 ---
 
-## 8. Version Control (Git) Discipline
 <!-- id: VCS-01, priority: MUST, tags: [git,version-control] -->
+## 8. Version Control (Git) Discipline
 - MUST: Commit all changes to code, configuration, and documentation with clear, descriptive messages following Conventional Commits.
 - MUST: Require human review of AI-generated changes before commit; use `git diff` to inspect changes.
 - SHOULD: Use branches for experiments and significant changes; test thoroughly on branches before merging.
-- MUST NOT: Use `git push --force` on shared branches unless coordinated and documented. (see CRM-01)
+- MUST NOT: Use `git push --force` on shared branches unless coordinated and documented.
 - MUST: Maintain a comprehensive `.gitignore` and review it regularly.
 - MUST: Pull latest changes before starting new work to avoid conflicts.
 - MUST: Follow commit message format: summary line ~50 characters, body wrapped at 72 characters, using Conventional Commits.
@@ -119,97 +128,154 @@ This document defines the baseline rules and best practices that all AI agents, 
 - MUST: Treat filenames, imports, and environment variable names as case-sensitive.
 - SHOULD: Resolve merge conflicts by understanding all changes and testing thoroughly before finalizing.
 
-## 9. AI Interaction Protocol & Change Management
 <!-- id: AIP-01, priority: MUST, tags: [ai,change-management] -->
+## 9. AI Interaction Protocol & Change Management
 - MUST: Seek explicit user confirmation before performing any destructive action.
 - MUST: Clearly state intent, affected files/services, and expected outcomes before applying changes.
 - MUST: Make changes incrementally and atomically; each change must be testable and reviewable.
 - SHOULD: Prompt for backups of critical files before modification or advise user to back up large volumes.
 - SHOULD: Log AI actions in commit messages or relevant logs with standardized tags (`AI-GENERATED`, `AI-REVIEWED`).
 
-## 10. Secrets Management
 <!-- id: SEC-01, priority: MUST, tags: [secrets] -->
+## 10. Secrets Management
 - MUST: Never hardcode credentials or secrets in code, configuration, or documentation.
 - MUST: Use Docker secrets, environment variables, or external vaults for secret management.
 - SHOULD: Define and document secret rotation intervals; rotate at least quarterly.
 - SHOULD: Establish audit logging for secret access and changes.
 - MUST: Have an emergency plan for secret revocation and rotation.
 
-## 11. Rollback and Recovery
 <!-- id: ROR-01, priority: MUST, tags: [rollback,recovery] -->
+## 11. Rollback and Recovery
 - MUST: Know rollback procedures (e.g., `git revert`, backup restore) before making significant changes.
 - MUST: Ensure backups or restore points exist before breaking changes.
 - SHOULD: Document rollback scenarios and examples in service-specific guides.
 
-## 12. Automated Checks and Enforcement
 <!-- id: AUTO-01, priority: SHOULD, tags: [automation,ci] -->
+## 12. Automated Checks and Enforcement
 - SHOULD: Use linting, formatting, and validation tools (e.g., pre-commit hooks) before merges.
 - MUST: Run automated checks on relevant files upon each change.
 - SHOULD: Integrate commitlint or Husky to enforce Conventional Commits.
 - SHOULD: Instrument CI/CD to track build/test metrics and set alerts for failures.
 
-## 13. AI/Human Collaboration Etiquette
 <!-- id: AHC-01, priority: SHOULD, tags: [ai,collaboration] -->
+## 13. AI/Human Collaboration Etiquette
 - SHOULD: Always allow human review of AI-generated suggestions.
 - SHOULD: Encourage human feedback in code reviews and commit messages.
 - MUST: Document conflicting advice, decision process, and rationale in commits or guides.
 
-## 14. Change Log Maintenance
 <!-- id: CHG-01, priority: MUST, tags: [changelog] -->
+## 14. Change Log Maintenance
 - MUST: Maintain `CHANGELOG.md` to track significant changes.
 - SHOULD: Note AI-made changes explicitly for transparency.
 
-## 15. Security Review
 <!-- id: SEC-REV-01, priority: SHOULD, tags: [security] -->
+## 15. Security Review
 - SHOULD: Periodically scan dependencies and images for vulnerabilities (e.g., `pip-audit`, Trivy).
 - SHOULD: Test updates on branches before merging.
 - MUST: Run vulnerability scans using tools like Snyk or GitHub Advanced Security.
 - MUST: Run containers as non-root users; document exceptions.
 - MUST: Use Linux-based parent images; avoid Windows containers.
 
-## 16. AI Model/Tool Versioning
 <!-- id: MODEL-VER-01, priority: SHOULD, tags: [ai,versioning] -->
+## 16. AI Model/Tool Versioning
 - SHOULD: Specify AI tool or model versions used for significant changes.
 
-## 17. Accessibility and Readability
 <!-- id: ACC-01, priority: SHOULD, tags: [accessibility] -->
+## 17. Accessibility and Readability
 - SHOULD: Write clear, concise documentation; strive for WCAG 2.1 compliance.
 - SHOULD: Use automated accessibility tools (e.g., axe-core, Lighthouse).
 
-## 18. Standardized Logging Practices
 <!-- id: LOG-01, priority: SHOULD, tags: [logging] -->
+## 18. Standardized Logging Practices
 - MUST: Log to stdout/stderr; avoid internal files unless documented.
 - SHOULD: Use configurable log levels; default to INFO in production.
 - SHOULD: Prefer structured logging (e.g., JSON) where feasible.
 
-## 19. Network Design and Port Management
 <!-- id: NET-01, priority: SHOULD, tags: [network] -->
+## 19. Network Design and Port Management
 - SHOULD: Define explicit Docker networks for related services.
 - MUST: Check for host port conflicts before exposing.
 - SHOULD: Document inter-service communication in setup guides.
 
-## 20. Data Persistence and Backup Strategy
 <!-- id: DATA-01, priority: MUST, tags: [data,persistence] -->
+## 20. Data Persistence and Backup Strategy
 - MUST: Define ephemeral vs. persistent data per service; document in setup guides.
 - SHOULD: Remind to backup version-controlled files and volumes after stable changes.
 
-## 21. Update and Upgrade Procedures
 <!-- id: UPG-01, priority: SHOULD, tags: [updates] -->
+## 21. Update and Upgrade Procedures
 - SHOULD: Use specific version tags over `latest` for predictability.
 - MUST: Test image and dependency updates on branches before merging.
 - SHOULD: Document known breaking changes in troubleshooting guides.
 
-## 22. Post-Stability Actions (Including Backups)
 <!-- id: POST-01, priority: SHOULD, tags: [backup,post-deployment] -->
+## 22. Post-Stability Actions (Including Backups)
 - MUST: Upon stability confirmation, remind user to backup code, configs, and volumes.
 
 ---
 
+<!-- id: DEV-01, priority: SHOULD, tags: [development,custom-code] -->
 ## 23. General Development Principles for Custom Code & Services
-For detailed coding and architecture guidelines, see `CODING_STANDARDS_SUPPLEMENT.md`.
 
----
+<!-- id: DAP-01, priority: SHOULD, tags: [design,architecture], last_reviewed: 2025-05-13 -->
+### 23.2. Design and Architecture Principles
+- MUST: Design components to be modular with single responsibilities (SRP).
+- SHOULD: Promote code reuse and reduce coupling through abstraction and interfaces (DIP, ISP).
+- SHOULD: Design for extensibility (OCP) allowing new functionality with minimal changes.
+- SHOULD: Implement and document design patterns (Factory, Observer, Strategy, Decorator) with rationale.
+- SHOULD: Follow SOLID principles for flexible, maintainable design.
+- SHOULD: Employ dependency injection to provide components with dependencies externally.
 
+<!-- id: EH-01, priority: MUST, tags: [error-handling,robustness], last_reviewed: 2025-05-13 -->
+### 23.3. Error Handling and Robustness
+- MUST: Implement comprehensive error handling using language-appropriate constructs to catch and manage exceptions.
+- MUST: Define and use custom exception types for application-specific error conditions.
+- MUST: Log all exceptions and significant error states with sufficient context (stack trace, parameters).
+- MUST: Rigorously validate all external inputs at component boundaries to prevent errors and vulnerabilities.
+
+<!-- id: PERF-01, priority: SHOULD, tags: [performance,scalability], last_reviewed: 2025-05-13 -->
+### 23.4. Performance and Scalability
+- SHOULD: Choose efficient algorithms and data structures appropriate for task and data sizes.
+- SHOULD: Utilize appropriate concurrency mechanisms (asyncio, threading, multiprocessing) for parallelism.
+- SHOULD: Profile code to identify bottlenecks before optimizing critical paths.
+- MUST: Manage system resources efficiently, ensuring proper cleanup of resources (context managers, finally blocks).
+- SHOULD: Establish and rerun performance benchmarks after significant changes.
+
+<!-- id: QA-01, priority: SHOULD, tags: [testing,qa], last_reviewed: 2025-05-13 -->
+### 23.5. Testing and Quality Assurance
+- MUST: Implement comprehensive unit tests covering new and modified code.
+- MUST: Write integration tests for interactions between components or services.
+- SHOULD: Aim for high test coverage of business logic and critical paths.
+- MUST: Structure code to be easily testable (SRP, DI, limited global state).
+
+<!-- id: SBP-01, priority: MUST, tags: [security], last_reviewed: 2025-05-13 -->
+### 23.6. Security Best Practices
+- MUST: Validate and sanitize all inputs from untrusted sources to prevent injection and traversal attacks.
+- MUST: Enforce the principle of least privilege for processes and services.
+- MUST: Regularly scan and update dependencies to patch known vulnerabilities.
+- MUST: Protect sensitive data with encryption at rest and in transit, and avoid logging sensitive information.
+
+<!-- id: CICD-02, priority: SHOULD, tags: [cicd,automation], last_reviewed: 2025-05-13 -->
+### 23.7. CI/CD (Continuous Integration & Continuous Deployment)
+- SHOULD: Automate build, test, and deployment processes through CI/CD pipelines.
+- SHOULD: Maintain consistency between development, testing, and production environments.
+- SHOULD: Integrate containerization and declarative configs to reduce environment drift.
+
+<!-- id: PY-01, priority: SHOULD, tags: [python], last_reviewed: 2025-05-13 -->
+### 23.8. Python-Specific Development Guidelines
+- MUST: Adhere to PEP 8 style guide for Python code formatting.
+- SHOULD: Use type hints for function arguments and return values where they improve clarity.
+- MUST: Include docstrings for all public modules, classes, functions, and methods.
+- SHOULD: Use linters (Flake8, Pylint) and formatters (Black, isort) via pre-commit hooks.
+- SHOULD: Leverage Pythonic idioms (list comprehensions, context managers).
+- SHOULD: Use Abstract Base Classes and decorators for interfaces and cross-cutting concerns.
+- MUST: Catch specific exceptions and ensure resource cleanup with context managers.
+- SHOULD: Utilize asyncio for I/O-bound concurrency and multiprocessing for CPU-bound tasks.
+- SHOULD: Write tests with pytest or unittest, using mocking and measuring coverage.
+- MUST: Isolate dependencies in virtual environments and pin versions in requirements.txt.
+- SHOULD: Avoid unsafe use of pickle and sanitize inputs in web contexts.
+
+<!-- id: APP-01, priority: MAY, tags: [appendix,scripts,templates], last_reviewed: 2025-05-13 -->
 ## 24. Appendix: Example Automation Scripts & Templates
 
 ### Example Docker Compose Snippet (Healthchecks & Explicit Networks)
@@ -238,8 +304,7 @@ networks:
     driver: bridge
 ```
 
----
-
+<!-- id: VIS-01, priority: SHOULD, tags: [visualization,diagrams], last_reviewed: 2025-05-13 -->
 ## 25. Visualizations & Diagrams
 
 - For complex stacks, generate and include service dependency graphs or flowcharts.
@@ -257,8 +322,7 @@ graph TD;
   ovos_core --> ollama;
 ```
 
----
-
+<!-- id: REV-01, priority: MUST, tags: [review,schedule], last_reviewed: 2025-05-13 -->
 ## 26. Periodic Review & Update Schedule
 
 - **Review Frequency:** These guidelines must be reviewed and updated at least quarterly (every 3 months) or after any major stack or process change.
@@ -268,8 +332,7 @@ graph TD;
     - Document all changes in `CHANGELOG.md`.
     - Confirm continued alignment with industry best practices and project needs.
 
----
-
+<!-- id: OFF-01, priority: SHOULD, tags: [offline,portability], last_reviewed: 2025-05-13 -->
 ## 27. Designing for Offline Capability & Portability
 
 *To maximize the stack's ability to be deployed and maintained in offline or air-gapped environments, the following principles apply:*
@@ -292,32 +355,5 @@ graph TD;
 
 ---
 
-## 28. Handling Exceptions and Deviations to These Rules
-<!-- id: EXC-01, priority: MUST, tags: [compliance], last_reviewed: 2025-05-13 -->
-Any intentional deviation from these baseline rules must be a conscious, documented exception:
-1. **Identify:** Reference the baseline rule(s) being deviated from.
-2. **Justify:** Provide clear rationale for the deviation.
-3. **Document:** Record the exception, justification, risks, and alternative approach in the relevant `[ServiceName]_SETUP_GUIDE.md` or `[ServiceName]_TROUBLESHOOTING_GUIDE.md` with a link back to this guide.
-4. **Approve:** Obtain explicit approval from the primary maintainer before finalizing.
-
----
-
-## 29. Conflict Resolution Matrix
-<!-- id: CRM-01, priority: SHOULD, tags: [conflict], last_reviewed: 2025-05-13 -->
-### CRM-01: Resolving Conflicts in Code, Configuration, or Documentation
-1. **Identify Conflict:** Clearly define the conflicting changes, configurations, or documentation sections; reference impacted rules.
-2. **Analyze Impact:** Assess risks, benefits, and trade-offs against project priorities (security, performance, maintainability).
-3. **Collaborate:** Engage stakeholders (AI and humans) via collaborative channels to gather input.
-4. **Decide:** Reach consensus or escalate to primary maintainer; document rationale in commit messages or guides.
-5. **Implement:** Apply resolution, test thoroughly, and update documentation/configuration.
-6. **Review:** Conduct post-resolution review to confirm effective conflict resolution and capture lessons learned.
-
----
-
-<!-- Footnotes -->
-
-[1]: https://datatracker.ietf.org/doc/html/rfc2119  "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels"
-
----
-
 **This guide is mandatory. All new code, configuration, and documentation must comply with these rules.**
+````
