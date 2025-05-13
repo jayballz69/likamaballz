@@ -1,0 +1,497 @@
+#
+# NOTE: This stack is part of a multi-file Docker Compose setup.
+#
+# Other Compose files in this workspace:
+#   - docker-compose.home.yml: Core home automation services (e.g., Home Assistant, Zigbee2MQTT, etc.)
+#   - docker-compose.utils.yml: Utility/infrastructure services (Portainer, Watchtower, Nginx Proxy Manager, Tailscale, Cloudflared)
+#
+# This file (docker-compose.ai.yml) contains AI/ML services:
+#   - frigate
+#   - ollama
+#   - stable-diffusion-webui
+#   - whisper
+#   - qdrant
+#   - tgi
+#   - xtts
+#   - ovos_messagebus
+#   - ovos
+#
+# See the other files for additional services and to bring up the full stack, use:
+#   docker-compose -f "docker-compose.ai.yml" -f "docker-compose.home.yml" -f "docker-compose.utils.yml" up -d
+#
+
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    shm_size: '64mb'
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./frigate/config:/config
+      - ./frigate/media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '5000:5000' # Frigate UI
+      - '8554:8554' # RTSP
+      - '8555:8555/tcp' # WebRTC
+    environment:
+      - FRIGATE_RTSP_PASSWORD=changeme
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
+    ports:
+      - '11434:11434'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Documentation for ollama usage
+  #
+  # To run a model using ollama, use the following command:
+  #
+  # sudo docker exec -it ollama ollama run <model_name>
+  #
+  # Example:
+  # sudo docker exec -it ollama ollama run llama3:8b
+  #
+  # To list available models:
+  # sudo docker exec -it ollama ollama list
+  #
+  # Ensure the ollama container is running and accessible on port 11434.
+
+  # Stable Diffusion WebUI (image generation)
+  stable-diffusion-webui:
+    image: sd-auto:78
+    container_name: stable-diffusion-webui
+    restart: unless-stopped
+    ports:
+      - '7860:7860'
+    volumes:
+      - ./stable-diffusion/models:/models
+      - ./stable-diffusion/outputs:/outputs
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Australia/Brisbane
+      - CLI_ARGS=--listen
+      # If using CPU only, add:
+      # - COMMANDLINE_ARGS=--use-cpu all --no-half
+    # Uncomment for GPU support if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Whisper (voice-to-text)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: whisper
+    restart: unless-stopped
+    command: >
+      --model base.en
+      --language en
+      --data-dir /data
+      --download-dir /data
+    ports:
+      - '10300:10300'
+    volumes:
+      - ./whisper/data:/data
+
+  # Qdrant (vector database for AI memory)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant/data:/qdrant/storage
+
+  # HuggingFace Text Generation Inference (LLM server)
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: tgi
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./tgi/data:/data
+
+  # XTTS (text-to-speech with voice cloning)
+  xtts:
+    image: ghcr.io/coqui-ai/tts:latest  # Official Coqui image for XTTSv2 and GPU
+    container_name: xtts
+    restart: unless-stopped
+    entrypoint: tts-server
+    command: >
+      --model_path /workspace/model/my_xtts_v2_local
+      --config_path /workspace/model/my_xtts_v2_local/config.json
+      --speakers_file_path /workspace/model/my_xtts_v2_local/speakers_xtts.pth
+      --port 5002
+      --use_cuda true
+    volumes:
+      - ./xtts/models:/workspace/model
+      - ./xtts/speakers:/workspace/speakers
+    ports:
+      - "5002:5002"
+    environment:
+      - COQUI_TOS_AGREED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  # NOTE: synesthesiam/coqui-tts:latest does NOT support XTTSv2 models.
+  # Use ghcr.io/coqui-ai/tts:latest for XTTSv2 support.
+  # Model files must be in ./xtts/models/my_xtts_v2_local/ on the host.
+  # Keep this service running until confirmed stable.
+
+  ovos_messagebus:
+    image: smartgic/ovos-messagebus:latest
+    container_name: ovos_messagebus
+    restart: unless-stopped
+    networks:
+      - ovos_network
+    ports:
+      - "8181:8181"
+    environment:
+      - TZ=Australia/Brisbane
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8181/core | grep 426"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # IMPORTANT: The messagebus configuration is located in ./ovos_config/config/mycroft.conf
+    # For OVOS core to connect successfully to the messagebus, AND for messagebus itself to be healthy,
+    # ensure mycroft.conf contains the following "websocket" section for the SERVER:
+    #
+    # "websocket": {
+    #   "host": "0.0.0.0",         # messagebus server binds to all interfaces
+    #   "port": 8181,
+    #   "route": "/core",          # serves the /core endpoint
+    #   "ssl": false
+    # }
+    #
+    # The ovos-core client will use its own settings (primarily from ENV VARS) to connect to this.
+
+  ovos:
+    build:
+      context: ./ovos-docker # Ensure Dockerfile.custom-ovos-core and requirements.txt are here
+      dockerfile: Dockerfile.custom-ovos-core
+    container_name: ovos
+    restart: unless-stopped
+    depends_on:
+      ovos_messagebus:
+        condition: service_healthy
+    environment:
+      - TZ=Australia/Brisbane
+      - MESSAGEBUS_HOST=ovos_messagebus
+      - MESSAGEBUS_PORT=8181
+      - MESSAGEBUS_ROUTE=/core
+      - MYCROFT_CONF_PATH=/home/ovos/.config/mycroft/mycroft.conf
+      - OVOS_DEFAULT_LOG_LEVEL=DEBUG
+    # TROUBLESHOOTING CONNECTION ISSUES FOR OVOS-CORE (CLIENT):
+    # If the OVOS core container shows "Connection Refused" errors:
+    #
+    # 1. Primary Connection Config: OVOS-core client uses MESSAGEBUS_HOST, _PORT, _ROUTE ENV VARS.
+    #
+    # 2. Fallback Config (`mycroft.conf`):
+    #    Ensure your ./ovos_config/config/mycroft.conf (mounted to /ovos/.config/mycroft/mycroft.conf)
+    #    has a "websocket" section configured for the CLIENT to connect to "ovos_messagebus" on "/core".
+    #    This was the key insight: ovos-core's MessageBusClient() (when called with no args) reads
+    #    from config['websocket'] for its parameters if ENV VARS are not fully overriding.
+    #    Example for client parameters in mycroft.conf's "websocket" section:
+    #    "websocket": {
+    #      "host": "ovos_messagebus",
+    #      "port": 8181,
+    #      "route": "/core",
+    #      "ssl": false
+    #    }
+    #    (Also good to have a "message_bus_client" section with same client values for compatibility).
+    #
+    # 3. Verify connection using test scripts:
+    #    docker-compose -f docker-compose.ai.yml exec ovos python3 /ovos/ovos_test_connection.py
+    volumes:
+      - ./ovos_config/config:/home/ovos/.config/mycroft # Mounts the whole config dir
+      - ./ovos_config/data:/home/ovos/.local/share/mycroft
+      - ./ovos_test_connection.py:/home/ovos/ovos_test_connection.py # Optional test script
+    networks:
+      - ovos_network
+    ports:
+      - "8183:8181"  # WebUI port for ovos-core's GUI server
+
+# TROUBLESHOOTING LOG - OVOS (OpenVoiceOS) Setup [CONDENSED - Reflecting Successful Connection]
+# Goal: Get OpenVoiceOS (ovos-core & ovos-messagebus) running reliably in Docker.
+# All dates are nominal for logging purposes.
+#
+# [Phase 1: Initial Attempts with Public Images (smartgic/ovos-core) - May 11-12, 2025]
+# - Problem: Persistent "Connection Refused" from `ovos-core` to `ovos_messagebus`.
+# - Key Diagnostics: Basic network tests (TCP, curl) worked. `/core` WebSocket route and `websocket-client` versions were investigated.
+#   Direct Python WebSocket tests (`websocket.create_connection` to `ws://<host_ip>:<port>/core`) from `ovos` container eventually SUCCEEDED.
+# - Outcome: `ovos-bus-client` within `ovos-core` services still failed, suggesting issues with how it resolved connection parameters from config/env.
+#
+# [Phase 2: Switch to Custom Docker Image (Python 3.11) - May 12-13, 2025]
+# - Rationale: More control over environment. Dockerfile (`ovos-docker/Dockerfile.custom-ovos-core`) created.
+# - Build Issues: Resolved `ModuleNotFoundError` for `ovos_padatious` (added `swig`, `libfann-dev`) and
+#   initial `ModuleNotFoundError` for `ovos_core` (ensured robust `pip install -r requirements.txt` from `ovos-docker/requirements.txt`
+#   with all necessary packages like `ovos-core`, `ovos-bus-client`, `websocket-client==0.57.0`, STT/TTS/WW/PHAL plugins).
+#   Resolved `PermissionError` for `/home/ovos/.local/state` with Dockerfile `chown`.
+#
+# [Phase 3: Connection Breakthrough with Custom Image - May 13, 2025]
+# - Problem: Despite a successful custom build, `ovos-core` (SkillsService client) still showed "Connection Refused."
+# - Key Success: Direct instantiation of `MessageBusClient(host="ovos_messagebus", port=8181, route="/core")`
+#   in test scripts (like `ovos_messagebus_test.py` or one-liners) within the `ovos` container SUCCEEDED.
+# - The CRITICAL INSIGHT & FIX:
+#   - `ovos-core` services, when calling `MessageBusClient()` with no arguments, appeared to derive
+#     connection parameters from the `config['websocket']` section of `mycroft.conf`,
+#     not solely `config['message_bus_client']` or ENV VARS in this specific context.
+#   - The host's `./ovos_config/config/mycroft.conf` (mounted to both containers) was updated:
+#     Its `"websocket"` section was configured for `ovos_messagebus` SERVER (`host: "0.0.0.0", route: "/core"`).
+#     Its `"message_bus_client"` section was configured for `ovos-core` CLIENT (`host: "ovos_messagebus", route: "/core"`).
+#     AND crucial `ovos` service environment variables were confirmed: `MESSAGEBUS_HOST=ovos_messagebus`, `MESSAGEBUS_PORT=8181`, `MESSAGEBUS_ROUTE=/core`.
+#     (The precedence is ENV VARS > config for `ovos-bus-client`. The key was ensuring consistent targeting of `/core`
+#     and that `ovos_messagebus` server used `host: "0.0.0.0"` from its config's `websocket` section).
+#
+# - Result of Fixes:
+#   - `ovos_messagebus` started and became HEALTHY (healthcheck to `/core` passed).
+#   - "Connection Refused" errors in `ovos-core` logs DISAPPEARED.
+#   - `ovos-core` proceeded to initialize `ovos_padatious` and load skills successfully.
+#
+# - Current Status:
+#   - Custom OVOS Docker image builds and installs all dependencies correctly.
+#   - `ovos_messagebus` runs reliably.
+#   - `ovos-core` successfully connects to `ovos_messagebus` and starts its services/skills.
+#   - Key Learning: Consistent and correct configuration of `mycroft.conf` (for both messagebus server via its `websocket` section
+#     and as a fallback for the client via its `message_bus_client` section) AND correct `ovos-core` client environment variables
+#     (especially `MESSAGEBUS_ROUTE=/core`) are essential.
+#
+# Next step: Further testing of OVOS functionality (STT, TTS, Skills, GUI).
+#
+# --- End OVOS Troubleshooting Log ---
+
+# Add more AI/video services as needed
+
+# Networks for OVOS services
+networks:
+  ovos_network:
+    driver: bridge
+
+# Additional Documentation for Home Automation Stack
+#
+# General Docker Commands:
+#
+# Start all services:
+# docker-compose -f docker-compose.ai.yml up -d
+#
+# Stop all services:
+# docker-compose -f docker-compose.ai.yml down
+#
+# Restart a specific service:
+# docker-compose -f docker-compose.ai.yml restart <service_name>
+#
+# XTTS (Text-to-Speech) Important Notes:
+#
+# - Model Directory Structure: Models are persisted by mapping a host directory
+#   (./xtts/models) to the container's default model cache path
+#   (/root/.local/share/tts). This prevents re-downloads on restart.
+#
+# - Voice Cloning: XTTSv2 supports voice cloning from short audio samples (6+ seconds).
+#   Store reference voice samples in ./xtts/speakers/ directory for organization.
+#
+# - GPU Acceleration: XTTSv2 is computationally intensive and strongly benefits from GPU.
+#   Without GPU acceleration, speech generation will be much slower.
+#
+# - First Run: On first startup, XTTSv2 will download a large model (~7GB).
+#   This may take significant time depending on your internet connection.
+#
+# - API Usage: To use the XTTS API for voice cloning, send a POST request to:
+#   http://localhost:5002/api/tts with JSON body containing:
+#   {
+#     "text": "Your text to synthesize",
+#     "speaker_wav": "base64_encoded_audio_sample",
+#     "language": "en" (or other supported language code)
+#   }
+#
+# - Supported Languages: XTTSv2 supports 17 languages including English (en),
+#   Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt),
+#   Polish (pl), Turkish (tr), Russian (ru), Dutch (nl), Czech (cs), Arabic (ar),
+#   Chinese (zh-cn), Japanese (ja), Korean (ko), Hungarian (hu), and Hindi (hi).
+#
+# - Audio Format: For best results with voice cloning, use WAV files with:
+#   * 24kHz sample rate (preferred for XTTSv2, which will resample other rates)
+#   * Minimal background noise
+#   * At least 6 seconds of clear speech
+#
+# Resource Management:
+#
+# - Multiple AI services running simultaneously (especially Ollama, TGI,
+#   Stable Diffusion, and XTTS) can be extremely resource-intensive.
+# - Monitor system resources (RAM, VRAM, CPU) regularly using tools like:
+#   * docker stats (for container resource usage)
+#   * nvidia-smi (for GPU usage if using NVIDIA GPUs)
+# - Consider adjusting resource limits for containers if necessary.
+#
+# Networking Overview:
+#
+# - All services run on a Docker bridge network (likely homeautomationstack_default)
+# - Main service access points:
+#   * Frigate UI: http://<host_ip>:5000
+#   * Stable Diffusion WebUI: http://<host_ip>:7860
+#   * Ollama API: http://<host_ip>:11434
+#   * Whisper API: http://<host_ip>:10300
+#   * Qdrant API: http://<host_ip>:6333
+#   * TGI API: http://<host_ip>:8080
+#   * XTTS API: http://<host_ip>:5002
+#   * OVOS GUI WebSocket: http://<host_ip>:8181
+#
+# GPU Allocation:
+#
+# - Ollama and XTTS are configured to use GPU by default
+# - For stable-diffusion-webui, uncomment the GPU section for much better performance
+# - For TGI (text-generation-inference), consider enabling GPU for practical use
+#   with larger models
+#
+# Text Generation Inference (TGI) Configuration:
+#
+# - The TGI service doesn't specify a model by default
+# - To load a specific model, add environment variables like:
+#   environment:
+#     - MODEL_ID=mistralai/Mistral-7B-Instruct-v0.1
+#
+# Initial Model Downloads:
+#
+# - Several services will download large models on first run:
+#   * Ollama: Models range from 1GB to 65GB+ depending on selection
+#   * TGI: Large LLMs typically 2GB-30GB depending on model
+#   * XTTS: ~7GB for the full XTTSv2 model and dependencies
+#   * Stable Diffusion: Base models ~2-7GB each
+# - Ensure sufficient disk space and a stable internet connection
+# - Initial downloads can take anywhere from minutes to hours
+#
+# Security Considerations:
+#
+# - Change default passwords (like FRIGATE_RTSP_PASSWORD) immediately
+# - If exposing services outside your local network:
+#   * Use strong authentication
+#   * Consider using HTTPS (via reverse proxy)
+#   * Prefer VPN access over direct port forwarding
+#   * Regularly update container images for security patches
+#
+# Updating Services:
+#
+# - Pull latest images: docker-compose -f docker-compose.ai.yml pull
+# - Restart with new images: docker-compose -f docker-compose.ai.yml up -d
+# - Check container logs after updates: docker logs <container_name>
+#
+# PUID/PGID Explanation:
+#
+# - Used for stable-diffusion-webui and potentially other services
+# - Sets internal user/group ID for container processes
+# - Ensures correct file ownership on mounted volumes
+# - Find your host user's IDs with: id -u (PUID) and id -g (PGID)
+#
+# Data Volume Management:
+#
+# - Model and media data volumes can grow very large over time
+# - Check Docker disk usage with: docker system df
+# - Monitor specific volume directories: du -sh ./*/
+# - Consider periodic cleanup of unused models and media
+#
+# Home Automation Stack Overall Structure:
+#
+# The complete stack is organized across three compose files:
+# - docker-compose.ai.yml: AI and ML services (this file)
+# - docker-compose.home.yml: Core home automation services
+# - docker-compose.utils.yml: Infrastructure and utility services
+#
+# Utility Services (from docker-compose.utils.yml):
+#
+# - Portainer (container:portainer):
+#   Web-based Docker management UI available at http://<host_ip>:9000
+#
+# - Watchtower (container:watchtower):
+#   Automatic container updates when new images are available
+#
+# - Nginx Proxy Manager (container:nginx-proxy-manager):
+#   Reverse proxy and SSL management, admin UI at http://<host_ip>:81
+#
+# - Tailscale (container:tailscale):
+#   Secure remote access to your network using Tailscale VPN
+#
+# - Cloudflared (container:cloudflared):
+#   Cloudflare tunnel for secure external access without port forwarding
+#
+# See docker-compose.utils.yml for detailed configuration of these services.
+#
+# Backup and Restore:
+#
+# To back up critical data, copy the following directories:
+# - ./frigate/config and ./frigate/media
+# - ./ollama (entire directory, not just models)
+# - ./qdrant/data
+# - ./stable-diffusion/models and ./stable-diffusion/outputs
+# - ./whisper/data
+# - ./xtts/models and ./xtts/speakers
+# - ./ovos_config/config and ./ovos_config/data
+#
+# To restore, replace the directories with the backed-up versions.
+#
+# Environment Variables:
+#
+# - FRIGATE_RTSP_PASSWORD: Password for RTSP streams in Frigate.
+# - PUID and PGID: User and group IDs for permissions in Stable Diffusion.
+# - TZ: Timezone for services (e.g., Australia/Brisbane).
+#
+# Service-Specific Notes:
+#
+# Frigate:
+# - Configuration file: ./frigate/config/config.yaml
+# - Media storage: ./frigate/media/
+#
+# Stable Diffusion:
+# - GPU vs. CPU: Use CLI_ARGS=--use-cpu all --no-half for CPU-only mode.
+#
+# Ollama:
+# - Run a model: sudo docker exec -it ollama ollama run <model_name>
+# - List models: sudo docker exec -it ollama ollama list
+#
+# OVOS:
+# - Configuration file: ./ovos_config/config/mycroft.conf
+# - Data storage: ./ovos_config/data/
+#
+# Note: Home Assistant is defined in a separate compose file (docker-compose.home.yml)
+#
+# Troubleshooting Tips:
+#
+# - Check container logs:
+#   docker logs <container_name>
+#
+# - Verify container status:
+#   docker ps
+#
+# - Restart Docker service if containers fail to start:
+#   sudo systemctl restart docker
+#
+# - Ensure sufficient disk space for large models and media files.
+
