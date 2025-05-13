@@ -1,4 +1,4 @@
-# AI_CODING_BASELINE_RULES
+# Stack Management & AI Collaboration Baseline Guide
 
 > **Rule:** This guide must be referenced in all relevant code, configuration, and documentation files, and in all code reviews. Add a comment or note: "See AI_CODING_BASELINE_RULES.md for required practices."
 
@@ -10,7 +10,6 @@ This document defines the baseline rules and best practices that all AI agents, 
 - Always use the Docker Compose service name (e.g., `ovos_messagebus`, `ollama`, `whisper`, `xtts`, etc.) for all inter-container host references in configuration files or environment variables.
 - For a **server process inside a container that needs to listen for incoming connections** (e.g., a web server, a database, or `ovos_messagebus`), its `host` configuration should typically be set to `0.0.0.0` to bind to all available network interfaces within its container, making it accessible via its service name from other containers.
 - Ensure all critical configuration sections for each service match the canonical examples provided in its dedicated setup guide (e.g., `[ServiceName]_SETUP_GUIDE.md`).
-- These practices align with the [Twelve-Factor App](https://12factor.net/) “Config” principle: configuration should be stored in the environment, not in code, to enable portability and flexibility.
 
 ## 2. Environment Variables
 - Set all required environment variables for each service in the relevant `docker-compose.*.yml` file as specified in the service's setup guide.
@@ -23,11 +22,7 @@ This document defines the baseline rules and best practices that all AI agents, 
 
 ## 4. Healthchecks and Dependencies
 - Utilize `depends_on` (with `condition: service_healthy` where applicable) and robust `healthchecks` in Docker Compose to manage service startup order and ensure dependencies are truly ready.
-- Healthcheck `test` commands should accurately reflect the service's ability to perform its core function (e.g., responding on a specific port/path, process status).
-- **Prefer the `exec` form for healthchecks** (e.g., `["CMD", "executable", "arg1"]`) over the `shell` form (`CMD-SHELL "command string"`) to avoid unexpected shell expansions or signal handling issues, unless shell features are strictly necessary.
-- **Always define appropriate `interval`, `timeout`, `retries`, and `start_period`** values for each healthcheck to suit the service's startup characteristics.
-- Ensure the container's `CMD` or `ENTRYPOINT` correctly starts the main application process that the healthcheck is intended to monitor.
-- Avoid healthchecks that always pass (e.g., ending with `|| true`) for critical services unless the reason is well-documented and accepted.
+- Healthcheck `test` commands should accurately reflect the service's ability to perform its core function (e.g., responding on a specific port/path, process status). Avoid healthchecks that always pass (e.g., ending with `|| true`) for critical services unless the reason is well-documented.
 
 ## 5. Version Pinning
 - For stability and reproducibility, pin versions of base Docker images (e.g., `python:3.11-slim`), application versions (e.g., `smartgic/ovos-core:0.1.0`), and key software packages/libraries (e.g., in `requirements.txt`).
@@ -42,8 +37,6 @@ This document defines the baseline rules and best practices that all AI agents, 
     - A `[ServiceName]_SETUP_GUIDE.md` detailing its purpose, configuration specifics, volume mounts, exposed ports, and any unique setup steps.
     - A `[ServiceName]_TROUBLESHOOTING_GUIDE.md` (or a dedicated section within its setup guide, or within the main troubleshooting log in the `docker-compose.*.yml` file for that service) documenting common issues, diagnostic commands, and known fixes.
 - This overarching 'Stack Management & AI Collaboration Baseline Guide' must be referenced in all service-specific documentation and code reviews.
-- For complex inter-service dependencies, consider generating and maintaining a visual dependency graph to aid in understanding and debugging.
-- Ensure all documentation (including `*.md` guides and code comments) uses clear, simple language and considers accessibility (e.g., providing alt text for diagrams or images if used).
 
 ---
 
@@ -54,16 +47,6 @@ This document defines the baseline rules and best practices that all AI agents, 
 - **No Force Pushing:** Avoid `git push --force` on shared branches unless absolutely necessary and coordinated, as it can overwrite history.
 - **Maintain `.gitignore`:** Ensure a comprehensive `.gitignore` file is used to exclude local state, logs, IDE settings, secrets, large data/model files, and other non-repository items. Periodically review and update it.
 - **Regularly Pull from Remote:** Before starting new work, always pull the latest changes from the remote repository to avoid conflicts and ensure you are working with the most current baseline.
-- **Commit Message Format:**
-    - All commit messages should follow the [Conventional Commits](https://www.conventionalcommits.org/) specification (e.g., `feat:`, `fix:`, `docs:`, `chore:`).
-    - The summary line should be ~50 characters, with body text wrapped at 72 characters.
-    - Example:
-      ```
-      feat: add healthcheck to ovos_messagebus
-      
-      Adds a Docker Compose healthcheck for the ovos_messagebus service to improve startup reliability.
-      ```
-- All Infrastructure-as-Code (IaC) files (e.g., Docker Compose, Terraform, Helm charts) must be version controlled, with clear branching and tagging strategies.
 
 ## 9. AI Interaction Protocol & Change Management
 - **Explicit Confirmation for Destructive Actions:** AI assistants **must always seek explicit user confirmation** before performing any potentially destructive actions. This includes, but is not limited to:
@@ -82,9 +65,6 @@ This document defines the baseline rules and best practices that all AI agents, 
 ## 10. Secrets Management
 - **No Hardcoded Secrets:** Credentials, API keys, or other secrets must **never** be hardcoded into configuration files, Dockerfiles, scripts, or committed to the Git repository.
 - **Use Environment Variables & Externalized Config:** Prefer Docker secrets, environment variables passed at runtime (e.g., via a non-committed `.env` file referenced by Docker Compose), or secure vault solutions for managing secrets.
-- Establish a regular schedule for secret rotation and document the process.
-- Implement audit logging for secret access and changes where possible.
-- Have a plan for emergency secret revocation and rotation.
 
 ## 11. Rollback and Recovery
 - Always ensure you know how to roll back changes. Use `git revert`, restore from backups, or use Docker volume snapshots as appropriate (note: basic Docker local volumes/host-mounted directories do not support built-in snapshots; use file system backups for these).
@@ -93,8 +73,6 @@ This document defines the baseline rules and best practices that all AI agents, 
 ## 12. Automated Checks and Enforcement
 - Use automated tools for linting, formatting, and validating configuration files (e.g., JSON/YAML linters, Docker Compose validators, pre-commit hooks).
 - Automated checks should run before merging or deploying changes.
-- Provide and recommend pre-commit hook configurations (e.g., for linting, formatting, YAML/JSON validation) using the [pre-commit](https://pre-commit.com/) framework.
-- Instrument CI/CD pipelines to track metrics such as build frequency, failure rates, build/test duration, and code coverage. Set up alerts for failures or regressions.
 
 ## 13. AI/Human Collaboration Etiquette
 - All AI-generated suggestions must be open to human review.
@@ -106,7 +84,6 @@ This document defines the baseline rules and best practices that all AI agents, 
 ## 15. Security Review
 - Periodically review dependencies and Docker images for vulnerabilities (e.g., using `pip-audit`, `docker scan`, or similar tools).
 - Update dependencies and images responsibly, following version pinning and review rules.
-- Regularly scan dependencies and Docker images for known vulnerabilities using tools like `pip-audit` (for Python), `docker scan`, Trivy, Grype, Snyk, or GitHub Advanced Security.
 
 ## 16. AI Model/Tool Versioning
 - If multiple AI tools or Copilot versions are used, specify which version or model was used for a given change (if possible), especially for major updates or migrations.
@@ -119,8 +96,7 @@ This document defines the baseline rules and best practices that all AI agents, 
 ## 18. Standardized Logging Practices
 - **Console Output:** Ensure all containerized applications log to `stdout` and `stderr` to be easily captured by `docker logs <container_name>`. Avoid logging only to internal files unless absolutely necessary and documented.
 - **Log Levels:** Utilize configurable log levels (e.g., DEBUG, INFO, WARNING, ERROR) for each service. Document how to change the log level (e.g., via environment variable or config file) in the service's setup guide. Default to `INFO` for production-like stability, use `DEBUG` for troubleshooting.
-- **Structured Logging:** Prefer structured logging (e.g., JSON format) for logs where feasible, to enable easier parsing and analysis by log management tools.
-- All logs should be ephemeral and routed to stdout/stderr, not written to persistent files inside containers.
+- **Structured Logging (Optional):** Where possible, encourage structured logging (e.g., JSON format) for easier parsing and analysis by log management tools if you implement them later.
 
 ## 19. Network Design and Port Management
 - **Explicit Networks:** Define explicit Docker bridge networks in your `docker-compose.*.yml` files for groups of related services (e.g., `ovos_network`, `monitoring_network`) rather than relying solely on the default bridge network. This improves isolation and service discovery predictability.

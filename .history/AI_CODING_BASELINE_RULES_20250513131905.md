@@ -23,11 +23,7 @@ This document defines the baseline rules and best practices that all AI agents, 
 
 ## 4. Healthchecks and Dependencies
 - Utilize `depends_on` (with `condition: service_healthy` where applicable) and robust `healthchecks` in Docker Compose to manage service startup order and ensure dependencies are truly ready.
-- Healthcheck `test` commands should accurately reflect the service's ability to perform its core function (e.g., responding on a specific port/path, process status).
-- **Prefer the `exec` form for healthchecks** (e.g., `["CMD", "executable", "arg1"]`) over the `shell` form (`CMD-SHELL "command string"`) to avoid unexpected shell expansions or signal handling issues, unless shell features are strictly necessary.
-- **Always define appropriate `interval`, `timeout`, `retries`, and `start_period`** values for each healthcheck to suit the service's startup characteristics.
-- Ensure the container's `CMD` or `ENTRYPOINT` correctly starts the main application process that the healthcheck is intended to monitor.
-- Avoid healthchecks that always pass (e.g., ending with `|| true`) for critical services unless the reason is well-documented and accepted.
+- Healthcheck `test` commands should accurately reflect the service's ability to perform its core function (e.g., responding on a specific port/path, process status). Avoid healthchecks that always pass (e.g., ending with `|| true`) for critical services unless the reason is well-documented.
 
 ## 5. Version Pinning
 - For stability and reproducibility, pin versions of base Docker images (e.g., `python:3.11-slim`), application versions (e.g., `smartgic/ovos-core:0.1.0`), and key software packages/libraries (e.g., in `requirements.txt`).

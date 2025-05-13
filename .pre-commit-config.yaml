@@ -1,0 +1,38 @@
+# Example pre-commit configuration for Home Automation Stack
+# See AI_CODING_BASELINE_RULES.md (Section 12) for required and recommended hooks
+
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args: ["--py311-plus"]
+
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.13.2
+    hooks:
+      - id: isort
+
+# To enable, run:
+#   pip install pre-commit
+#   pre-commit install
+#
+# See AI_CODING_BASELINE_RULES.md for enforcement and customization details.
