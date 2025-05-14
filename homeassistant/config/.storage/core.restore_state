@@ -4,9 +4,9 @@
   "key": "core.restore_state",
   "data": [
     {
-      "state": {"entity_id":"conversation.home_assistant","state":"unknown","attributes":{"friendly_name":"Home Assistant","supported_features":1},"last_changed":"2025-05-12T21:31:13.645228+00:00","last_reported":"2025-05-12T21:31:13.645228+00:00","last_updated":"2025-05-12T21:31:13.645228+00:00","context":{"id":"01JV36HDVDZA1WX5FM6CTXK7C7","parent_id":null,"user_id":null}},
+      "state": {"entity_id":"conversation.home_assistant","state":"unknown","attributes":{"friendly_name":"Home Assistant","supported_features":1},"last_changed":"2025-05-13T09:59:49.882068+00:00","last_reported":"2025-05-13T09:59:49.882068+00:00","last_updated":"2025-05-13T09:59:49.882068+00:00","context":{"id":"01JV4HC5BTCPFVFKRGCYSMRNS7","parent_id":null,"user_id":null}},
       "extra_data": null,
-      "last_seen": "2025-05-13T05:41:53.911534+00:00"
+      "last_seen": "2025-05-14T03:09:33.741712+00:00"
     }
   ]
 }

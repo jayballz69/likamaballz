@@ -22,8 +22,14 @@ pyee
 # Wake Word plugin
 ovos-ww-plugin-vosk
 
+# STT plugin
+ovos-stt-plugin-server
+
 # TTS plugin
 ovos-tts-plugin-coqui
 
 # Audio backend plugin
 ovos-audio-plugin-simple
+
+# PHAL plugin for system control functionalities
+ovos-PHAL-plugin-system

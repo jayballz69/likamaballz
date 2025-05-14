@@ -1,0 +1,53 @@
+# filepath: j:\workspace\Home automation stack\test_ovos_containers.ps1
+# See AI_CODING_BASELINE_RULES.md for required practices.
+# See OVOS_SETUP_GUIDE.md and OVOS_TROUBLESHOOTING_GUIDE.md for OVOS container instructions.
+<# Description: Powershell script to test ovos_messagebus and ovos containers (AI Stack) #>
+# Start required services in detached mode
+Write-Host "Starting ovos_messagebus and ovos containers..."
+docker-compose -f docker-compose.ai.yml up -d ovos_messagebus ovos
+
+# Wait for ovos_messagebus health with timeout
+$maxRetries = 12
+$retry = 0
+Write-Host "Waiting for ovos_messagebus to become healthy..."
+while ((docker inspect --format '{{.State.Health.Status}}' ovos_messagebus) -ne 'healthy') {
+    if ($retry -ge $maxRetries) {
+        Write-Host "ERROR: Timeout waiting for ovos_messagebus to become healthy."
+        Write-Host "---- ovos_messagebus Logs ----"
+        docker logs ovos_messagebus
+        Write-Host "Refer to OVOS_TROUBLESHOOTING_GUIDE.md for troubleshooting steps."
+        exit 1
+    }
+    Start-Sleep -Seconds 5
+    $retry++
+    Write-Host "Still waiting for ovos_messagebus... ($retry/$maxRetries)"
+}
+Write-Host "ovos_messagebus is healthy."
+
+# Wait for ovos health with timeout
+$retry = 0
+Write-Host "Waiting for ovos container to become healthy..."
+while ((docker inspect --format '{{.State.Health.Status}}' ovos) -ne 'healthy') {
+    if ($retry -ge $maxRetries) {
+        Write-Host "ERROR: Timeout waiting for ovos to become healthy."
+        Write-Host "---- ovos Logs ----"
+        docker logs ovos
+        Write-Host "Refer to OVOS_TROUBLESHOOTING_GUIDE.md for troubleshooting steps."
+        exit 1
+    }
+    Start-Sleep -Seconds 5
+    $retry++
+    Write-Host "Still waiting for ovos... ($retry/$maxRetries)"
+}
+Write-Host "ovos is healthy."
+
+# Run Python test scripts
+Write-Host "Running ovos_messagebus_test.py..."
+python .\ovos_messagebus_test.py
+
+Write-Host "Running ovos_test_connection.py..."
+python .\ovos_test_connection.py
+
+# Tear down containers
+docker-compose -f docker-compose.ai.yml down
+Write-Host "Test run complete. Containers stopped."

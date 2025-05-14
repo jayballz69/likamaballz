@@ -1,0 +1,114 @@
+# See AI_CODING_BASELINE_RULES.md for required practices.
+#
+# NOTE: This stack is part of a multi-file Docker Compose setup.
+#
+# Other Compose files in this workspace:
+#   - docker-compose.ai.yml: AI/ML services (Frigate, Ollama, Stable Diffusion WebUI, Whisper, Qdrant, TGI, XTTS, TTS)
+#   - docker-compose.home.yml: Core home automation services (Home Assistant, Zigbee2MQTT, etc.)
+#
+# This file (docker-compose.utils.yml) contains utility/infrastructure services:
+#   - portainer
+#   - watchtower
+#   - nginx-proxy-manager
+#   - tailscale
+#   - cloudflared
+#   - (and others, see file for details)
+#
+# See the other files for additional services and to bring up the full stack, use:
+#   docker-compose -f "docker-compose.ai.yml" -f "docker-compose.home.yml" -f "docker-compose.utils.yml" up -d
+#
+# All configuration, healthcheck, and environment variable practices in this file must comply with [AI_CODING_BASELINE_RULES.md](./AI_CODING_BASELINE_RULES.md). See that guide for required standards on configuration, healthchecks, logging, commit practices, and more.
+#
+
+version: '3.8'
+
+services:
+  portainer:
+    image: portainer/portainer-ce:2.18.0  # pinned version
+    container_name: portainer
+    restart: unless-stopped
+    user: "1000:1000"  # attempt non-root; if unsupported, document exception per EXC-01
+    ports:
+      - '9443:9443' # Use 9443 for HTTPS by default
+      - '9000:9000' # Optional: HTTP
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer_data:/data # Use a local volume mount
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -f https://localhost:9443/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  watchtower:
+    image: containrrr/watchtower:1.9.0  # pinned version
+    container_name: watchtower
+    restart: unless-stopped
+    user: "1000:1000"  # attempt non-root; document exception if fails
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Add arguments if needed, e.g., --cleanup to remove old images
+    # command: --cleanup
+    # watchtower does not expose HTTP API; skipping healthcheck (document exception per EXC-01)
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:2.12.0  # pinned version
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    user: "1000:1000"  # attempt non-root; document exception if required
+    ports:
+      - '81:81'   # Admin UI
+      - '80:80'   # HTTP
+      - '443:443' # HTTPS
+    volumes:
+      - ./npm_data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:81/api/nginx/proxy-hosts || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  tailscale:
+    image: tailscale/tailscale:1.68.1  # pinned version
+    container_name: tailscale
+    hostname: home-automation-stack # Set a hostname for Tailscale
+    restart: unless-stopped
+    network_mode: host # Use host network for easier setup
+    privileged: true  # requires root for VPN; documented exception per EXC-01
+    volumes:
+      - ./tailscale_data:/var/lib/tailscale # Persist state
+      - /dev/net/tun:/dev/net/tun # Required for VPN tunnel
+    environment:
+      # IMPORTANT: Set TS_AUTHKEY in your environment or a .env file
+      # Example: export TS_AUTHKEY=tskey-auth-kEXAMPLE123
+      - TS_AUTHKEY=${TS_AUTHKEY} # Use an environment variable for the auth key
+      # - TS_EXTRA_ARGS=--advertise-routes=YOUR_SUBNETS # If needed
+    # skipping non-root and healthcheck due to system-level requirements; exception per EXC-01
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.4.2  # latest stable as of 2025-05-14
+    container_name: cloudflared
+    restart: unless-stopped
+    user: "1000:1000"  # runs non-root for config processing
+    # IMPORTANT: You need to provide a tunnel token or configure via the dashboard/config.yml
+    # Option 1: Use a token (replace YOUR_TUNNEL_TOKEN)
+    # command: tunnel --no-autoupdate run --token YOUR_TUNNEL_TOKEN
+    # Option 2: Use a config file mounted into the container
+    volumes:
+      - ./cloudflared_data:/.cloudflared # Persist config and certs
+    healthcheck:
+      test: ["CMD-SHELL", "cloudflared tunnel list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  portainer_data:
+  npm_data:
+  letsencrypt:
+  tailscale_data:
+  cloudflared_data:

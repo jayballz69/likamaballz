@@ -1,0 +1,160 @@
+# See AI_CODING_BASELINE_RULES.md for required practices.
+# GitHub Actions workflow to enforce baseline rules, linting, and security scans
+name: CI Baseline Enforcement
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  banner-check:
+    name: Banner Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check in-file banner presence
+        run: |
+          set -o pipefail
+          for file in $(git ls-files '*.py' '*.ps1' '*.md' '*.yml' '*.json'); do
+            if ! head -n1 "$file" | grep -q 'See AI_CODING_BASELINE_RULES.md for required practices.'; then
+              echo "❌ $file missing required banner"
+              exit 1
+            fi
+          done
+
+  commitlint:
+    name: Conventional Commit Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Lint commit messages
+        uses: wagoid/commitlint-github-action@v4
+        with:
+          configFile: ''
+
+  lint-python:
+    name: Python Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install linters
+        run: |
+          pip install flake8 black isort
+      - name: Run flake8
+        run: flake8 .
+      - name: Run black check
+        run: black --check .
+      - name: Run isort check
+        run: isort --check-only .
+
+  trivy-scan:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Trivy FS scan
+        uses: aquasecurity/trivy-action@v0.10.2
+        with:
+          scan-type: fs
+          directory: .
+
+  # Run pre-commit hooks for comprehensive linting
+  pre-commit-checks:
+    name: Pre-commit Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.0
+
+  # YAML linting
+  lint-yaml:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install yamllint
+        run: |
+          pip install yamllint
+      - name: Run yamllint
+        run: yamllint .
+
+  # Python tests
+  test-python:
+    name: Python Pytest
+    runs-on: ubuntu-latest
+    needs: lint-python
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run pytest
+        run: python -m pytest --maxfail=1 --disable-warnings -q
+
+  # Build Docker images
+  build-docker-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Docker CLI
+        run: echo "" | docker login --username "$DOCKER_USERNAME" --password-stdin
+      - name: Build ovos image
+        run: docker-compose -f docker-compose.ai.yml build ovos
+
+  # Trivy image scan
+  trivy-image-scan:
+    name: Trivy Docker Image Scan
+    runs-on: ubuntu-latest
+    needs: build-docker-images
+    steps:
+      - uses: actions/checkout@v3
+      - name: Scan ovos image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.19.0
+        with:
+          image-ref: 'ovos'
+          scan-type: 'image'
+          severity: 'HIGH,CRITICAL'
+          format: 'sarif'
+          output: 'trivy-ovos.sarif'
+          exit-code: '1'
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-ovos.sarif'
+
+  # Secret scanning for accidental credentials
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install detect-secrets
+        run: pip install detect-secrets
+      - name: Run detect-secrets scan
+        run: |
+          detect-secrets scan --all-files > detect_secrets.json
+      - name: Fail on detected secrets
+        run: |
+          if grep -q '"line_number"' detect_secrets.json; then
+            echo "🚨 Potential secrets detected, please review detect_secrets.json";
+            exit 1;
+          else
+            echo "No secrets detected.";
+          fi

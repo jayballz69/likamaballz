@@ -1,0 +1,67 @@
+# See AI_CODING_BASELINE_RULES.md for required practices.
+# GitHub Actions workflow to enforce baseline rules, linting, and security scans
+name: CI Baseline Enforcement
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  banner-check:
+    name: Banner Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check in-file banner presence
+        run: |
+          set -o pipefail
+          for file in $(git ls-files '*.py' '*.ps1' '*.md' '*.yml' '*.json'); do
+            if ! head -n1 "$file" | grep -q 'See AI_CODING_BASELINE_RULES.md for required practices.'; then
+              echo "❌ $file missing required banner"
+              exit 1
+            fi
+          done
+
+  commitlint:
+    name: Conventional Commit Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Lint commit messages
+        uses: wagoid/commitlint-github-action@v4
+        with:
+          configFile: ''
+
+  lint-python:
+    name: Python Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install linters
+        run: |
+          pip install flake8 black isort
+      - name: Run flake8
+        run: flake8 .
+      - name: Run black check
+        run: black --check .
+      - name: Run isort check
+        run: isort --check-only .
+
+  trivy-scan:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Trivy FS scan
+        uses: aquasecurity/trivy-action@v0.10.2
+        with:
+          scan-type: fs
+          directory: .

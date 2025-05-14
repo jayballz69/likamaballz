@@ -1,0 +1,4 @@
+# Development dependencies for testing and local scripts
+pytest
+websocket-client
+ovos-bus-client
